@@ -10,6 +10,7 @@
 html,body{height:100%;overflow:hidden;touch-action:none}
 body{background:#12131a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;user-select:none;color:rgba(180,180,190,0.5)}
 #c{width:var(--grid-w);height:calc(var(--cell)*5 + var(--gap)*4);touch-action:none;cursor:default;border-radius:4px}
+.top-bar{position:fixed;top:env(safe-area-inset-top,8px);left:0;right:0;display:flex;flex-direction:column;align-items:center;gap:4px;z-index:10}
 .logo{display:flex;align-items:center;gap:4px;height:36px;cursor:pointer}
 .logo-icon{width:32px;height:32px}
 .logo-icon svg{width:100%;height:100%}
@@ -18,12 +19,6 @@ body{background:#12131a;display:flex;flex-direction:column;align-items:center;ju
 .nav-dot{width:8px;height:8px;border-radius:50%;background:rgba(180,180,190,0.2);transition:all 0.3s;cursor:pointer}
 .nav-dot.active{background:rgba(126,200,227,0.7);box-shadow:0 0 8px rgba(126,200,227,0.4)}
 .nav-label{font-size:0.65rem;color:rgba(126,200,227,0.4);letter-spacing:0.15em}
-.score-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(180,180,190,0.2);border-radius:12px;padding:6px 12px;width:var(--grid-w)}
-.score-item{display:flex;flex-direction:column;align-items:center;gap:2px}
-.score-lbl{font-size:0.6rem;color:rgba(180,180,190,0.5);text-transform:uppercase;letter-spacing:0.05em}
-.score-val{font-size:1rem;color:rgba(220,220,230,0.9);font-weight:500;font-variant-numeric:tabular-nums}
-.combo{color:#34d399!important}
-.combo-lbl{color:#34d399!important}
 .ctrl-row{display:flex;gap:8px}
 .dbtn{background:transparent;border:1px solid rgba(180,180,190,0.25);color:rgba(180,180,190,0.5);padding:6px 12px;border-radius:8px;cursor:pointer;font-size:0.7rem;font-family:inherit;letter-spacing:0.05em}
 .dbtn:hover{border-color:rgba(180,180,190,0.5);color:rgba(180,180,190,0.8)}
@@ -32,26 +27,25 @@ body{background:#12131a;display:flex;flex-direction:column;align-items:center;ju
 </style>
 </head>
 <body>
-<div class="logo" id="logo">
- <div class="logo-icon"><svg viewBox="0 0 36 36"><path d="M8 26L18 10L28 26"/></svg></div>
- <div class="logo-icon"><svg viewBox="0 0 36 36"><polygon points="10,10 26,18 10,26"/></svg></div>
- <div class="logo-icon"><svg viewBox="0 0 36 36"><path d="M8 26L18 10L28 26"/></svg></div>
- <div class="logo-icon"><svg viewBox="0 0 36 36"><line x1="10" y1="8" x2="10" y2="28"/><line x1="18" y1="8" x2="18" y2="28"/><line x1="26" y1="8" x2="26" y2="28"/></svg></div>
-</div>
-<div class="nav-row">
- <span class="nav-label" id="navLabel">T1</span>
- <div id="navDots" style="display:flex;gap:5px"></div>
+<div class="top-bar">
+ <div class="logo" id="logo">
+  <div class="logo-icon"><svg viewBox="0 0 36 36"><path d="M8 26L18 10L28 26"/></svg></div>
+  <div class="logo-icon"><svg viewBox="0 0 36 36"><polygon points="10,10 26,18 10,26"/></svg></div>
+  <div class="logo-icon"><svg viewBox="0 0 36 36"><path d="M8 26L18 10L28 26"/></svg></div>
+  <div class="logo-icon"><svg viewBox="0 0 36 36"><line x1="10" y1="8" x2="10" y2="28"/><line x1="18" y1="8" x2="18" y2="28"/><line x1="26" y1="8" x2="26" y2="28"/></svg></div>
+ </div>
+ <div class="nav-row">
+  <span class="nav-label" id="navLabel">T1</span>
+  <div id="navDots" style="display:flex;gap:5px"></div>
+ </div>
+ <div class="ctrl-row">
+  <button class="dbtn" id="btnUndo">Undo</button>
+  <button class="dbtn" id="btnReset">Reset</button>
+ </div>
 </div>
 <canvas id="c"></canvas>
-<div class="score-bar">
- <div class="score-item"><span class="score-lbl">Score</span><span class="score-val" id="scoreVal">0</span></div>
- <div class="score-item"><span class="score-lbl combo-lbl">Combo</span><span class="score-val combo" id="comboVal">×1</span></div>
- <div class="score-item"><span class="score-lbl">Best</span><span class="score-val" id="bestVal">0</span></div>
-</div>
-<div class="ctrl-row">
- <button class="dbtn" id="btnUndo">Undo</button>
- <button class="dbtn" id="btnReset">Reset</button>
-</div>
+<!-- score masqué mais éléments conservés pour le JS -->
+<div style="display:none"><span id="scoreVal">0</span><span id="comboVal">×1</span><span id="bestVal">0</span></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 const COLS=3,ROWS=5,TOTAL=15,PORTE_INDEX=7,NUM_FACES=4;
