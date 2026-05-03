@@ -216,7 +216,9 @@ let rotAnimActive=null;
 function rotateDom(gi){
  if(gameAnim||isNav||rotAnimActive)return;
  const fi=mod(currentIdx),dm=getDom(fi,gi);if(!dm)return;
- const sat=sats.find(s=>s.tab===fi&&s.gi===gi);if(!sat||!sat.baseQuat)return;
+ // Pour les portes, le satellite unique est sur tab 0; sinon on cherche sur le layer courant
+ const sat=isPorte(gi)?sats.find(s=>s.tab===0&&s.gi===gi):sats.find(s=>s.tab===fi&&s.gi===gi);
+ if(!sat||!sat.baseQuat)return;
  saveState();gameAnim=true;
  const localRot=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),-Math.PI/2);
  const startQ=sat.baseQuat.clone();
@@ -538,7 +540,7 @@ function applyGrav(){
 }
 // ══ RAYCAST ══
 const ray=new THREE.Raycaster(),mv=new THREE.Vector2();
-function getSatAt(cx,cy){const r=canvas.getBoundingClientRect();mv.x=((cx-r.left)/r.width)*2-1;mv.y=-((cy-r.top)/r.height)*2+1;ray.setFromCamera(mv,camera);const all=[];const fi=mod(currentIdx);sats.forEach(s=>{if(s.mesh.visible&&s.tab===fi)s.mesh.traverse(c=>{if(c.isMesh)all.push(c);});});for(const h of ray.intersectObjects(all,false)){let o=h.object;while(o){if(o.userData?.isSat){const s=sats.find(x=>x.mesh===o);if(s)return s;}o=o.parent;}}return null;}
+function getSatAt(cx,cy){const r=canvas.getBoundingClientRect();mv.x=((cx-r.left)/r.width)*2-1;mv.y=-((cy-r.top)/r.height)*2+1;ray.setFromCamera(mv,camera);const all=[];const fi=mod(currentIdx);sats.forEach(s=>{if(s.mesh.visible&&(s.tab===fi||isPorte(s.gi)))s.mesh.traverse(c=>{if(c.isMesh)all.push(c);});});for(const h of ray.intersectObjects(all,false)){let o=h.object;while(o){if(o.userData?.isSat){const s=sats.find(x=>x.mesh===o);if(s)return s;}o=o.parent;}}return null;}
 function isCubeAt(cx,cy){const r=canvas.getBoundingClientRect();mv.x=((cx-r.left)/r.width)*2-1;mv.y=-((cy-r.top)/r.height)*2+1;ray.setFromCamera(mv,camera);return ray.intersectObject(pMesh,false).length>0;}
 // ══ POINTER ══
 let pS=null,pM=false,pSat=null,pCb=false;
