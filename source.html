@@ -48,7 +48,8 @@ body{background:#12131a;display:flex;flex-direction:column;align-items:center;ju
 <div style="display:none"><span id="scoreVal">0</span><span id="comboVal">×1</span><span id="bestVal">0</span></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-const COLS=3,ROWS=5,TOTAL=15,PORTE_INDEX=7,NUM_FACES=4;
+const COLS=3,ROWS=5,TOTAL=15,PORTE_POSITIONS=[7],NUM_FACES=4;
+const isPorte=i=>PORTE_POSITIONS.includes(i);
 const STATE_ORDER=['white','silver','gold','emerald','cosmic','supernovae'];
 const STATE_MULT={white:1,silver:2,gold:3,emerald:5,cosmic:10,supernovae:20};
 const PTS={simple:100,twin:1000};
@@ -118,20 +119,24 @@ function getDominoTex(f1,f2,rot,state){
 let allDom=[[],[],[],[]],allHist=[[],[],[],[]],allScoreHist=[[],[],[],[]];
 let score=0,bestScore=0,comboCount=0,lastFusionTime=0;
 let fusionCounts={silver:0,gold:0,emerald:0,cosmic:0,supernovae:0};
-let centro={face1:'chevron',face2:'circle',rotation:0,state:'white'};
 function srand(seed){let s=seed;return()=>{s=(s*1103515245+12345)&0x7fffffff;return s/0x7fffffff;};}
-function initFace(fi){const rng=srand(SEEDS[fi]);allDom[fi]=Array.from({length:TOTAL},(_,i)=>{if(i===PORTE_INDEX)return null;const x=i%COLS,y=Math.floor(i/COLS);return{face1:BANK[Math.floor(rng()*BANK.length)],face2:BANK[Math.floor(rng()*BANK.length)],rotation:((x+y)%2===0)?0:90,state:'white'};});allHist[fi]=[];allScoreHist[fi]=[];}
-// Le domino en index 7 est partagé : on le lit/écrit via getCentro/setCentro
-function getCentro(){return centro;}
-function setCentro(d){centro=d;updCubeTexFromCentro();}
-// Getter qui retourne le bon domino pour un index (centro si 7, sinon allDom)
-function getDom(fi,i){return i===PORTE_INDEX?centro:allDom[fi][i];}
-function setDom(fi,i,v){if(i===PORTE_INDEX){centro=v;updCubeTexFromCentro();}else allDom[fi][i]=v;}
+function initFace(fi){const rng=srand(SEEDS[fi]);allDom[fi]=Array.from({length:TOTAL},(_,i)=>{if(isPorte(i))return null;const x=i%COLS,y=Math.floor(i/COLS);return{face1:BANK[Math.floor(rng()*BANK.length)],face2:BANK[Math.floor(rng()*BANK.length)],rotation:((x+y)%2===0)?0:90,state:'white'};});allHist[fi]=[];allScoreHist[fi]=[];}
+// Getter: lit la case (les portes sont dans allDom comme les autres)
+function getDom(fi,i){return allDom[fi]?allDom[fi][i]:null;}
+// Setter: écrit la case. Si position-porte, propage à tous les layers (liaison)
+function setDom(fi,i,v){
+ if(isPorte(i)){
+  for(let f=0;f<NUM_FACES;f++)allDom[f][i]=v?{...v}:null;
+  updCubeTexFromPorte();
+ }else{
+  allDom[fi][i]=v;
+ }
+}
 function getPos(i){return{x:i%COLS,y:Math.floor(i/COLS)};}
 function getIdx(x,y){return(x<0||x>=COLS||y<0||y>=ROWS)?-1:y*COLS+x;}
 function getExposed(dm,dir){if(!dm)return null;const r=((dm.rotation%360)+360)%360;const m={0:{top:'face1',bottom:'face2'},90:{left:'face2',right:'face1'},180:{top:'face2',bottom:'face1'},270:{left:'face1',right:'face2'}};return m[r]?.[dir]?dm[m[r][dir]]:null;}
 function getRemaining(dm,ed){if(!dm)return null;const r=((dm.rotation%360)+360)%360;const m={0:{top:'face2',bottom:'face1'},90:{right:'face2',left:'face1'},180:{top:'face1',bottom:'face2'},270:{right:'face1',left:'face2'}};return m[r]?.[ed]?dm[m[r][ed]]:null;}
-function areTwins(a,b){if(!a||!b)return false;const r1=((a.rotation%360)+360)%360,r2=((b.rotation%360)+360)%360;if(r1===r2&&a.face1===b.face1&&a.face2===b.face2)return true;if(Math.abs(r1-r2)===180&&a.face1===b.face2&&a.face2===b.face1)return true;const d=Math.abs(r1-r2);if((d===90||d===270)&&a.face1===b.face2&&a.face2===b.face1)return true;return false;}
+function areTwins(a,b){if(!a||!b)return false;const r1=((a.rotation%360)+360)%360,r2=((b.rotation%360)+360)%360;if(r1===r2&&a.face1===b.face1&&a.face2===b.face2)return true;if(Math.abs(r1-r2)===180&&a.face1===b.face2&&a.face2===b.face1)return true;return false;}
 // ══ THREE ══
 const canvas=document.getElementById('c');
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true});renderer.setClearColor(0x12131a);
@@ -143,8 +148,16 @@ const cubeGroup=new THREE.Group();scene.add(cubeGroup);
 // Porte cube
 const pMats=[];for(let i=0;i<6;i++)pMats.push(new THREE.MeshBasicMaterial({transparent:true}));
 const pMesh=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),pMats);pMesh.userData.isCube=true;cubeGroup.add(pMesh);
-function updCubeTexFromCentro(){const st=centro?centro.state:'white';const t=centro?getDominoTex(centro.face1,centro.face2,centro.rotation,st):null;pMats.forEach(m=>{m.map=t;m.opacity=centro?1:0;m.needsUpdate=true;});}
-updCubeTexFromCentro();
+function updCubeTexFromPorte(){
+ // Affiche le domino-porte principal (index 7) sur le cube central
+ // Comme les portes sont synchronisées, on lit depuis allDom[0]
+ const PORTE_DISPLAY=PORTE_POSITIONS[0];
+ const p=allDom[0]?allDom[0][PORTE_DISPLAY]:null;
+ const st=p?p.state:'white';
+ const t=p?getDominoTex(p.face1,p.face2,p.rotation,st):null;
+ pMats.forEach(m=>{m.map=t;m.opacity=p?1:0;m.needsUpdate=true;});
+}
+updCubeTexFromPorte();
 // Halo
 const hcv=document.createElement('canvas');hcv.width=256;hcv.height=256;const hx=hcv.getContext('2d');
 const hg=hx.createRadialGradient(128,128,0,128,128,128);
@@ -178,13 +191,13 @@ function mkSat(){
 const sats=[];
 function g2l(gx,gy){return{x:(gx-1)*GAP,y:-(gy-2)*GAP};}
 function placeSat(s,fry){const q=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),fry);s.mesh.position.copy(new THREE.Vector3(s.lx,s.ly,HALF+SAT_LIFT).applyQuaternion(q));s.mesh.quaternion.copy(q);s.baseQuat=q.clone();}
-function buildSats(){sats.forEach(s=>cubeGroup.remove(s.mesh));sats.length=0;for(let fi=0;fi<NUM_FACES;fi++){for(let i=0;i<TOTAL;i++){if(i===PORTE_INDEX&&fi!==0)continue;const dm=getDom(fi,i);if(!dm)continue;const{x,y}=getPos(i);const p=g2l(x,y);const m=mkSat();m.visible=false;cubeGroup.add(m);sats.push({gi:i,tab:fi,lx:p.x,ly:p.y,mesh:m,baseQuat:null});}}}
-function rebuildFace(fi){const old=sats.filter(s=>s.tab===fi&&(s.gi!==PORTE_INDEX||fi===0));old.forEach(s=>{cubeGroup.remove(s.mesh);sats.splice(sats.indexOf(s),1);});for(let i=0;i<TOTAL;i++){if(i===PORTE_INDEX&&fi!==0)continue;const dm=getDom(fi,i);if(!dm)continue;const{x,y}=getPos(i);const p=g2l(x,y);const m=mkSat();m.visible=false;cubeGroup.add(m);sats.push({gi:i,tab:fi,lx:p.x,ly:p.y,mesh:m,baseQuat:null});}}
+function buildSats(){sats.forEach(s=>cubeGroup.remove(s.mesh));sats.length=0;for(let fi=0;fi<NUM_FACES;fi++){for(let i=0;i<TOTAL;i++){if(isPorte(i)&&fi!==0)continue;const dm=getDom(fi,i);if(!dm)continue;const{x,y}=getPos(i);const p=g2l(x,y);const m=mkSat();m.visible=false;cubeGroup.add(m);sats.push({gi:i,tab:fi,lx:p.x,ly:p.y,mesh:m,baseQuat:null});}}}
+function rebuildFace(fi){const old=sats.filter(s=>s.tab===fi&&(!isPorte(s.gi)||fi===0));old.forEach(s=>{cubeGroup.remove(s.mesh);sats.splice(sats.indexOf(s),1);});for(let i=0;i<TOTAL;i++){if(isPorte(i)&&fi!==0)continue;const dm=getDom(fi,i);if(!dm)continue;const{x,y}=getPos(i);const p=g2l(x,y);const m=mkSat();m.visible=false;cubeGroup.add(m);sats.push({gi:i,tab:fi,lx:p.x,ly:p.y,mesh:m,baseQuat:null});}}
 function updSatTex(s){const d=getDom(s.tab,s.gi);if(!d){s.mesh.visible=false;return;}const t=getDominoTex(d.face1,d.face2,d.rotation,d.state||'white');s.mesh.userData.numMesh.material.map=t;s.mesh.userData.numMesh.material.needsUpdate=true;const st=d.state||'white';const col=st==='cosmic'?0x8338ec:st==='supernovae'?0xff8c00:st==='emerald'?0x34d399:st==='gold'?0xffd700:st==='silver'?0x06b6d4:0xb4b4be;s.mesh.userData.edgeLines.material.color.set(col);s.mesh.userData.edgeLines.material.opacity=st==='white'?0.12:0.3;}
 // ══ NAV ══
 let currentIdx=0,isNav=false,busy=false,navDir=0,targetQuat=new THREE.Quaternion(),targetCamX=0,targetCamZ=11;
 function mod(n){return((n%NUM_FACES)+NUM_FACES)%NUM_FACES;}
-function assignFaces(){const fm=[[mod(currentIdx),0],[mod(currentIdx+1),1],[mod(currentIdx-1),3]];sats.forEach(s=>{if(s.gi===PORTE_INDEX){placeSat(s,FACE_ROT[0]);s.mesh.visible=!!centro;if(s.mesh.parent!==cubeGroup)cubeGroup.attach(s.mesh);return;}const e=fm.find(f=>f[0]===s.tab);if(e){placeSat(s,FACE_ROT[e[1]]);if(s.mesh.parent!==cubeGroup)cubeGroup.attach(s.mesh);}});}
+function assignFaces(){const fm=[[mod(currentIdx),0],[mod(currentIdx+1),1],[mod(currentIdx-1),3]];sats.forEach(s=>{if(isPorte(s.gi)){placeSat(s,FACE_ROT[0]);s.mesh.visible=!!getDom(0,s.gi);if(s.mesh.parent!==cubeGroup)cubeGroup.attach(s.mesh);return;}const e=fm.find(f=>f[0]===s.tab);if(e){placeSat(s,FACE_ROT[e[1]]);if(s.mesh.parent!==cubeGroup)cubeGroup.attach(s.mesh);}});}
 function refreshZoom(){
  const gridH=(ROWS-1)*GAP+1;
  const vFov=camera.fov*Math.PI/180;
@@ -196,8 +209,8 @@ function navLeft(){if(busy||isNav)return;busy=true;isNav=true;navDir=-1;targetQu
 function onNavDone(){currentIdx=mod(currentIdx+navDir);cubeGroup.quaternion.identity();targetQuat.identity();navDir=0;assignFaces();isNav=false;busy=false;refreshZoom();updateUI();}
 // ══ GAME ══
 let gameAnim=false;
-function saveState(){const fi=mod(currentIdx);allHist[fi].push({dom:JSON.parse(JSON.stringify(allDom[fi])),centro:centro?JSON.parse(JSON.stringify(centro)):null});allScoreHist[fi].push(score);if(allHist[fi].length>20){allHist[fi].shift();allScoreHist[fi].shift();}}
-function undo(){const fi=mod(currentIdx);if(!allHist[fi].length||gameAnim||isNav)return;const s=allHist[fi].pop();allDom[fi]=s.dom;centro=s.centro;score=allScoreHist[fi].pop();rebuildFace(fi);assignFaces();updCubeTexFromCentro();refreshZoom();updateUI();updateScore();}
+function saveState(){const fi=mod(currentIdx);allHist[fi].push({allDom:JSON.parse(JSON.stringify(allDom))});allScoreHist[fi].push(score);if(allHist[fi].length>20){allHist[fi].shift();allScoreHist[fi].shift();}}
+function undo(){const fi=mod(currentIdx);if(!allHist[fi].length||gameAnim||isNav)return;const s=allHist[fi].pop();allDom=s.allDom;score=allScoreHist[fi].pop();rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();updateScore();}
 // Rotation animée par quaternion local, compatible avec le breathing
 let rotAnimActive=null;
 function rotateDom(gi){
@@ -210,7 +223,7 @@ function rotateDom(gi){
  const endQ=sat.baseQuat.clone().multiply(localRot);
  rotAnimActive={sat,startQ,endQ,elapsed:0,dur:250,gi,fi};
 }
-function rotatePorte(){rotateDom(PORTE_INDEX);}
+function rotatePorte(){rotateDom(PORTE_POSITIONS[0]);}
 function updateRotAnim(dt){
  if(!rotAnimActive)return;
  rotAnimActive.elapsed+=dt*1000;
@@ -219,10 +232,14 @@ function updateRotAnim(dt){
  if(p>=1){
   const gi=rotAnimActive.gi,fi=rotAnimActive.fi;
   const dm=getDom(fi,gi);
-  if(dm)dm.rotation=(dm.rotation+90)%360;
+  if(dm){
+   dm.rotation=(dm.rotation+90)%360;
+   // Si position-porte, propager la nouvelle rotation à tous les layers
+   if(isPorte(gi)){for(let f=0;f<NUM_FACES;f++)if(f!==fi)allDom[f][gi]={...dm};}
+  }
   rotAnimActive.sat.mesh.quaternion.copy(rotAnimActive.sat.baseQuat);
   updSatTex(rotAnimActive.sat);
-  if(gi===PORTE_INDEX)updCubeTexFromCentro();
+  if(isPorte(gi))updCubeTexFromPorte();
   rotAnimActive=null;
   gameAnim=false;
   setTimeout(()=>checkFusions(),50);
@@ -271,7 +288,7 @@ function execGroupRot(group,cw){
     setDom(fi,ti,saved[i]);
    }
    movers.forEach(mv=>{mv.mesh.scale.set(1,1,1);});
-   rebuildFace(fi);assignFaces();updCubeTexFromCentro();refreshZoom();updateUI();
+   rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();
    gameAnim=false;
    setTimeout(()=>checkFusions(),50);
   }
@@ -284,19 +301,36 @@ function checkFusions(skipG){
  if(gameAnim||isNav)return;const fi=mod(currentIdx);
  // Twin check
  for(let i=0;i<TOTAL;i++){const di=getDom(fi,i);if(!di)continue;const{x,y}=getPos(i);
-  const iR=getIdx(x+1,y);if(iR!==-1&&getDom(fi,iR)&&areTwins(di,getDom(fi,iR))){doTwin(fi,i,iR);return;}
-  const iB=getIdx(x,y+1);if(iB!==-1&&getDom(fi,iB)&&areTwins(di,getDom(fi,iB))){doTwin(fi,i,iB);return;}
+  const iR=getIdx(x+1,y);if(iR!==-1&&getDom(fi,iR)&&areTwins(di,getDom(fi,iR))){doTwin(fi,i,iR,'h');return;}
+  const iB=getIdx(x,y+1);if(iB!==-1&&getDom(fi,iB)&&areTwins(di,getDom(fi,iB))){doTwin(fi,i,iB,'v');return;}
+ }
+ // Chain fusion check (3 dominos alignés)
+ for(let i=0;i<TOTAL;i++){const di=getDom(fi,i);if(!di)continue;const{x,y}=getPos(i);
+  // Horizontal: L-C-R
+  const iL=getIdx(x-1,y),iR=getIdx(x+1,y);
+  if(iL!==-1&&iR!==-1){const dL=getDom(fi,iL),dR=getDom(fi,iR);
+   if(dL&&dR){const fLR=getExposed(dL,'right'),fCL=getExposed(di,'left'),fCR=getExposed(di,'right'),fRL=getExposed(dR,'left');
+    if(fLR&&fCL&&fLR===fCL&&fCR&&fRL&&fCR===fRL){doChainFusion(fi,iL,i,iR,'h');return;}
+   }
+  }
+  // Vertical: T-C-B
+  const iT=getIdx(x,y-1),iB=getIdx(x,y+1);
+  if(iT!==-1&&iB!==-1){const dT=getDom(fi,iT),dB=getDom(fi,iB);
+   if(dT&&dB){const fTB=getExposed(dT,'bottom'),fCT=getExposed(di,'top'),fCB=getExposed(di,'bottom'),fBT=getExposed(dB,'top');
+    if(fTB&&fCT&&fTB===fCT&&fCB&&fBT&&fCB===fBT){doChainFusion(fi,iT,i,iB,'v');return;}
+   }
+  }
  }
  // Simple fusion check
  for(let i=0;i<TOTAL;i++){const di=getDom(fi,i);if(!di)continue;const{x,y}=getPos(i);
-  for(const{ni,d1,d2}of[{ni:getIdx(x+1,y),d1:'right',d2:'left'},{ni:getIdx(x,y+1),d1:'bottom',d2:'top'}]){
+  for(const{ni,d1,d2,dir}of[{ni:getIdx(x+1,y),d1:'right',d2:'left',dir:'h'},{ni:getIdx(x,y+1),d1:'bottom',d2:'top',dir:'v'}]){
    if(ni===-1)continue;const nb=getDom(fi,ni);if(!nb)continue;
-   const f1=getExposed(di,d1),f2=getExposed(nb,d2);if(f1&&f2&&f1===f2){doFusion(fi,i,ni,d1,d2);return;}
+   const f1=getExposed(di,d1),f2=getExposed(nb,d2);if(f1&&f2&&f1===f2){doFusion(fi,i,ni,d1,d2,dir);return;}
   }
  }
  if(!skipG)applyGrav();
 }
-function doFusion(fi,i1,i2,d1dir,d2dir){
+function doFusion(fi,i1,i2,d1dir,d2dir,dir){
  gameAnim=true;
  const dm1=getDom(fi,i1),dm2=getDom(fi,i2);
  const nf1=getRemaining(dm1,d1dir),nf2=getRemaining(dm2,d2dir);
@@ -304,8 +338,15 @@ function doFusion(fi,i1,i2,d1dir,d2dir){
  const ns=STATE_ORDER[Math.min(maxSI+1,STATE_ORDER.indexOf('cosmic'))];
  if(ns!=='white'&&fusionCounts[ns]!==undefined)fusionCounts[ns]++;
  const pts=addSc(PTS.simple,[dm1.state,dm2.state]);showFP(pts);
+ const newRot=dir==='h'?90:0;
  const s1=sats.find(s=>s.tab===fi&&s.gi===i1),s2=sats.find(s=>s.tab===fi&&s.gi===i2);
- if(!s1?.mesh||!s2?.mesh){gameAnim=false;return;}
+ if(!s1?.mesh||!s2?.mesh){
+  // Fallback: appliquer la fusion logique sans animation
+  setDom(fi,i1,{face1:nf1||BANK[0],face2:nf2||BANK[0],rotation:newRot,state:ns});
+  setDom(fi,i2,null);
+  rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();
+  gameAnim=false;setTimeout(()=>checkFusions(),50);return;
+ }
  const m1=s1.mesh,m2=s2.mesh;
  const p1s=m1.position.clone(),p2s=m2.position.clone();
  const mid=p1s.clone().add(p2s).multiplyScalar(0.5);
@@ -327,10 +368,10 @@ function doFusion(fi,i1,i2,d1dir,d2dir){
   m2.traverse(c=>{if(c.material)c.material.opacity=1-p;});
   if(p<1)requestAnimationFrame(fadeAnim);
   else{
-   const res={face1:nf1||BANK[0],face2:nf2||BANK[0],rotation:0,state:ns};
+   const res={face1:nf1||BANK[0],face2:nf2||BANK[0],rotation:newRot,state:ns};
    setDom(fi,i1,res);
    setDom(fi,i2,null);
-   rebuildFace(fi);assignFaces();updCubeTexFromCentro();refreshZoom();updateUI();
+   rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();
    const newS=sats.find(s=>s.tab===fi&&s.gi===i1);
    if(newS){newS.mesh.scale.set(0.3,0.3,0.3);elapsed=0;fadeAnim._last=null;
     const appearAnim=(now2)=>{
@@ -346,13 +387,69 @@ function doFusion(fi,i1,i2,d1dir,d2dir){
  };
  requestAnimationFrame(moveAnim);
 }
-function doTwin(fi,i1,i2){
+function doChainFusion(fi,i1,i2,i3,dir){
+ gameAnim=true;
+ const dm1=getDom(fi,i1),dm2=getDom(fi,i2),dm3=getDom(fi,i3);
+ const nf1=getRemaining(dm1,dir==='h'?'left':'top');
+ const nf2=getRemaining(dm3,dir==='h'?'right':'bottom');
+ const maxSI=Math.max(STATE_ORDER.indexOf(dm1.state),STATE_ORDER.indexOf(dm2.state),STATE_ORDER.indexOf(dm3.state));
+ const ns=STATE_ORDER[Math.min(maxSI+1,STATE_ORDER.indexOf('cosmic'))];
+ if(ns!=='white'&&fusionCounts[ns]!==undefined)fusionCounts[ns]++;
+ const pts=addSc(PTS.simple,[dm1.state,dm2.state,dm3.state]);showFP(pts);
+ const newRot=dir==='h'?90:0;
+ const s1=sats.find(s=>s.tab===fi&&s.gi===i1),s2=sats.find(s=>s.tab===fi&&s.gi===i2),s3=sats.find(s=>s.tab===fi&&s.gi===i3);
+ const applyResult=()=>{
+  setDom(fi,i2,{face1:nf1||BANK[0],face2:nf2||BANK[0],rotation:newRot,state:ns});
+  setDom(fi,i1,null);setDom(fi,i3,null);
+  rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();
+ };
+ if(!s1?.mesh||!s2?.mesh||!s3?.mesh){applyResult();gameAnim=false;setTimeout(()=>checkFusions(),50);return;}
+ const m1=s1.mesh,m2=s2.mesh,m3=s3.mesh;
+ const p1s=m1.position.clone(),p2s=m2.position.clone(),p3s=m3.position.clone();
+ const mid=p2s.clone();
+ let elapsed=0;const durMove=400,durFade=200,durAppear=400;
+ const moveAnim=(now)=>{
+  if(!moveAnim._last)moveAnim._last=now;
+  elapsed+=now-moveAnim._last;moveAnim._last=now;
+  const p=Math.min(elapsed/durMove,1),e=easeInOutQuad(p);
+  m1.position.lerpVectors(p1s,mid,e);m3.position.lerpVectors(p3s,mid,e);
+  const sc=1-0.4*e;m1.scale.set(sc,sc,sc);m2.scale.set(sc,sc,sc);m3.scale.set(sc,sc,sc);
+  if(p<1)requestAnimationFrame(moveAnim);
+  else{elapsed=0;moveAnim._last=null;requestAnimationFrame(fadeAnim);}
+ };
+ const fadeAnim=(now)=>{
+  if(!fadeAnim._last)fadeAnim._last=now;
+  elapsed+=now-fadeAnim._last;fadeAnim._last=now;
+  const p=Math.min(elapsed/durFade,1);
+  m1.traverse(c=>{if(c.material)c.material.opacity=1-p;});
+  m2.traverse(c=>{if(c.material)c.material.opacity=1-p;});
+  m3.traverse(c=>{if(c.material)c.material.opacity=1-p;});
+  if(p<1)requestAnimationFrame(fadeAnim);
+  else{
+   applyResult();
+   const newS=sats.find(s=>s.tab===fi&&s.gi===i2);
+   if(newS){newS.mesh.scale.set(0.3,0.3,0.3);elapsed=0;fadeAnim._last=null;
+    const appearAnim=(now2)=>{
+     if(!appearAnim._last)appearAnim._last=now2;
+     elapsed+=now2-appearAnim._last;appearAnim._last=now2;
+     const p2=Math.min(elapsed/durAppear,1),e2=easeOutCubic(p2);
+     const sc2=0.3+0.7*e2;newS.mesh.scale.set(sc2,sc2,sc2);
+     if(p2<1)requestAnimationFrame(appearAnim);
+     else{newS.mesh.scale.set(1,1,1);gameAnim=false;setTimeout(()=>checkFusions(),50);}
+    };requestAnimationFrame(appearAnim);
+   }else{gameAnim=false;setTimeout(()=>checkFusions(),50);}
+  }
+ };
+ requestAnimationFrame(moveAnim);
+}
+function doTwin(fi,i1,i2,dir){
  gameAnim=true;
  const dm1=getDom(fi,i1),dm2=getDom(fi,i2);
  let ns;if(dm1.state==='cosmic'&&dm2.state==='cosmic')ns='supernovae';else ns='cosmic';
  const pts=addSc(PTS.twin,[dm1.state,dm2.state]);showFP(pts);
+ const newRot=dir==='h'?90:0;
  const s1=sats.find(s=>s.tab===fi&&s.gi===i1),s2=sats.find(s=>s.tab===fi&&s.gi===i2);
- if(!s1?.mesh||!s2?.mesh){setDom(fi,i1,{...dm1,state:ns});setDom(fi,i2,null);rebuildFace(fi);assignFaces();updCubeTexFromCentro();refreshZoom();updateUI();gameAnim=false;setTimeout(()=>checkFusions(),50);return;}
+ if(!s1?.mesh||!s2?.mesh){setDom(fi,i1,{...dm1,rotation:newRot,state:ns});setDom(fi,i2,null);rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();gameAnim=false;setTimeout(()=>checkFusions(),50);return;}
  const m1=s1.mesh,m2=s2.mesh;
  const p1s=m1.position.clone(),p2s=m2.position.clone();
  const mid=p1s.clone().add(p2s).multiplyScalar(0.5);
@@ -375,8 +472,8 @@ function doTwin(fi,i1,i2){
   m2.traverse(c=>{if(c.material)c.material.opacity=1-p;});
   if(p<1)requestAnimationFrame(fadeAnim);
   else{
-   setDom(fi,i1,{...dm1,state:ns});setDom(fi,i2,null);
-   rebuildFace(fi);assignFaces();updCubeTexFromCentro();refreshZoom();updateUI();
+   setDom(fi,i1,{...dm1,rotation:newRot,state:ns});setDom(fi,i2,null);
+   rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();
    const newS=sats.find(s=>s.tab===fi&&s.gi===i1);
    if(newS){newS.mesh.scale.set(0.2,0.2,0.2);elapsed=0;fadeAnim._last=null;
     const appearAnim=(now2)=>{
@@ -417,7 +514,7 @@ function applyGrav(){
   }
  });
  if(animMoves.length===0){
-  rebuildFace(fi);assignFaces();updCubeTexFromCentro();refreshZoom();updateUI();
+  rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();
   gameAnim=false;setTimeout(()=>applyGrav(),50);return;
  }
  let elapsed=0;const dur=180;
@@ -432,7 +529,7 @@ function applyGrav(){
     const sat=sats.find(s=>s.mesh===am.mesh);
     if(sat)placeSat(sat,FACE_ROT[0]);
    });
-   updCubeTexFromCentro();
+   updCubeTexFromPorte();
    gameAnim=false;
    setTimeout(()=>applyGrav(),30);
   }
@@ -468,7 +565,7 @@ const dotsEl=document.getElementById('navDots');
 for(let i=0;i<NUM_FACES;i++){const d=document.createElement('div');d.className='nav-dot'+(i===0?' active':'');d.addEventListener('click',()=>{if(!isNav&&!busy){const diff=i-mod(currentIdx);if(diff>0)navRight();else if(diff<0)navLeft();}});dotsEl.appendChild(d);}
 function updateUI(){const idx=mod(currentIdx);document.getElementById('navLabel').textContent=`T${idx+1}`;dotsEl.querySelectorAll('.nav-dot').forEach((d,i)=>d.classList.toggle('active',i===idx));}
 function updateScore(){document.getElementById('scoreVal').textContent=score.toLocaleString();const ce=document.getElementById('comboVal');ce.textContent=comboCount>1?`×${(1+(comboCount-1)*0.5).toFixed(1)}`:'×1';ce.style.opacity=comboCount>1?'1':'0.5';}
-document.getElementById('btnReset').addEventListener('click',()=>{const fi=mod(currentIdx);initFace(fi);centro={face1:BANK[Math.floor(srand(SEEDS[fi]+7)()*BANK.length)],face2:BANK[Math.floor(srand(SEEDS[fi]+77)()*BANK.length)],rotation:0,state:'white'};score=0;comboCount=0;lastFusionTime=0;fusionCounts={silver:0,gold:0,emerald:0,cosmic:0,supernovae:0};rebuildFace(fi);assignFaces();updCubeTexFromCentro();refreshZoom();updateUI();updateScore();});
+document.getElementById('btnReset').addEventListener('click',()=>{const fi=mod(currentIdx);initFace(fi);const newPorte={face1:BANK[Math.floor(srand(SEEDS[fi]+7)()*BANK.length)],face2:BANK[Math.floor(srand(SEEDS[fi]+77)()*BANK.length)],rotation:0,state:'white'};PORTE_POSITIONS.forEach(pi=>setDom(fi,pi,newPorte));score=0;comboCount=0;lastFusionTime=0;fusionCounts={silver:0,gold:0,emerald:0,cosmic:0,supernovae:0};rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();updateScore();});
 document.getElementById('btnUndo').addEventListener('click',()=>undo());
 // ══ COSMIC DRAWING ══
 function drawCosmicRing(cv,angle){
@@ -513,7 +610,7 @@ function animate(){
  haloMat.opacity=0.4+0.35*(0.5+0.5*Math.sin(t*1.8));
  camera.position.x+=(targetCamX-camera.position.x)*0.08;camera.position.z+=(targetCamZ-camera.position.z)*0.08;camera.lookAt(camera.position.x,0,0);
  const fi=mod(currentIdx);
- sats.forEach((s,si)=>{if(!isNav){if(s.gi===PORTE_INDEX)s.mesh.visible=!!centro;else s.mesh.visible=(s.tab===fi);}if(s.mesh.visible){updSatTex(s);const isRotating=rotAnimActive&&rotAnimActive.sat===s;if(s.baseQuat&&!isNav&&!isRotating){const ph=t*1.2+si*1.7;const bq=new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.sin(ph)*0.012,0,Math.cos(ph*0.7)*0.008));s.mesh.quaternion.copy(s.baseQuat).multiply(bq);}
+ sats.forEach((s,si)=>{if(!isNav){if(isPorte(s.gi))s.mesh.visible=!!getDom(0,s.gi);else s.mesh.visible=(s.tab===fi);}if(s.mesh.visible){updSatTex(s);const isRotating=rotAnimActive&&rotAnimActive.sat===s;if(s.baseQuat&&!isNav&&!isRotating){const ph=t*1.2+si*1.7;const bq=new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.sin(ph)*0.012,0,Math.cos(ph*0.7)*0.008));s.mesh.quaternion.copy(s.baseQuat).multiply(bq);}
   const d=getDom(s.tab,s.gi);if(!d)return;const st=d.state||'white',ud=s.mesh.userData;
   if(st==='cosmic'){
    drawCosmicRing(ud.ringCanvas,t*Math.PI/2);ud.ringTex.needsUpdate=true;ud.ringMesh.material.opacity=1;
@@ -549,9 +646,16 @@ function animate(){
  renderer.render(scene,camera);
 }
 for(let f=0;f<NUM_FACES;f++)initFace(f);
-// Centro indépendant — généré avec le seed du face 0 position 7
-(function(){const rng=srand(SEEDS[0]);for(let i=0;i<=PORTE_INDEX;i++){rng();rng();}centro={face1:BANK[Math.floor(srand(SEEDS[0]+7)()*BANK.length)],face2:BANK[Math.floor(srand(SEEDS[0]+77)()*BANK.length)],rotation:0,state:'white'};})();
-buildSats();assignFaces();updCubeTexFromCentro();refreshZoom();camera.position.set(0,0,targetCamZ);updateUI();updateScore();animate();
+// Initialisation des portes — générées avec le seed du face 0, propagées sur tous les layers
+(function(){
+ PORTE_POSITIONS.forEach((pi,k)=>{
+  const f1=BANK[Math.floor(srand(SEEDS[0]+7+k*100)()*BANK.length)];
+  const f2=BANK[Math.floor(srand(SEEDS[0]+77+k*100)()*BANK.length)];
+  const porteDm={face1:f1,face2:f2,rotation:0,state:'white'};
+  for(let f=0;f<NUM_FACES;f++)allDom[f][pi]={...porteDm};
+ });
+})();
+buildSats();assignFaces();updCubeTexFromPorte();refreshZoom();camera.position.set(0,0,targetCamZ);updateUI();updateScore();animate();
 </script>
 </body>
 </html>
