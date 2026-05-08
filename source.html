@@ -9,7 +9,7 @@
 :root{--cell:min(80px,20vw);--gap:8px;--grid-w:calc(var(--cell)*3 + var(--gap)*2)}
 html,body{height:100%;overflow:hidden;touch-action:none}
 body{background:#12131a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;user-select:none;color:rgba(180,180,190,0.5)}
-#c{width:var(--grid-w);height:calc(var(--cell)*6 + var(--gap)*5);touch-action:none;cursor:default;border-radius:4px}
+#c{width:var(--grid-w);height:calc(var(--cell)*5 + var(--gap)*4);touch-action:none;cursor:default;border-radius:4px}
 .top-bar{position:fixed;top:env(safe-area-inset-top,8px);left:0;right:0;display:flex;flex-direction:column;align-items:center;gap:4px;z-index:10}
 .logo{display:flex;align-items:center;gap:4px;height:36px;cursor:pointer}
 .logo-icon{width:32px;height:32px}
@@ -48,7 +48,7 @@ body{background:#12131a;display:flex;flex-direction:column;align-items:center;ju
 <div style="display:none"><span id="scoreVal">0</span><span id="comboVal">×1</span><span id="bestVal">0</span></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-const COLS=3,ROWS=6,TOTAL=18,PORTE_POSITIONS=[7],NUM_FACES=2;
+const COLS=3,ROWS=5,TOTAL=15,PORTE_POSITIONS=[7],NUM_FACES=2;
 const isPorte=i=>PORTE_POSITIONS.includes(i);
 const STATE_ORDER=['white','silver','gold','emerald','cosmic','supernovae'];
 const STATE_MULT={white:1,silver:2,gold:3,emerald:5,cosmic:10,supernovae:20};
@@ -189,7 +189,7 @@ function mkSat(){
  g.userData={numMesh:n,edgeLines:el,glowMesh:gl,ringCanvas:rCv,ringTex:rTex,ringMesh:rMesh,haloCanvas:gCv,haloTex:gTex,haloSprite:gSpr,isSat:true};return g;
 }
 const sats=[];
-function g2l(gx,gy){return{x:(gx-1)*GAP,y:-(gy-2.5)*GAP};}
+function g2l(gx,gy){return{x:(gx-1)*GAP,y:-(gy-2)*GAP};}
 function placeSat(s,q){s.mesh.position.copy(new THREE.Vector3(s.lx,s.ly,HALF+SAT_LIFT).applyQuaternion(q));s.mesh.quaternion.copy(q);s.baseQuat=q.clone();}
 function faceQuat(faceRotIdx){return new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),FACE_ROT[faceRotIdx]);}
 function buildSats(){sats.forEach(s=>cubeGroup.remove(s.mesh));sats.length=0;for(let fi=0;fi<NUM_FACES;fi++){for(let i=0;i<TOTAL;i++){if(isPorte(i)&&fi!==0)continue;const dm=getDom(fi,i);if(!dm)continue;const{x,y}=getPos(i);const p=g2l(x,y);const m=mkSat();m.visible=false;cubeGroup.add(m);sats.push({gi:i,tab:fi,lx:p.x,ly:p.y,mesh:m,baseQuat:null});}}}
