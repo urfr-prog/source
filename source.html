@@ -201,12 +201,13 @@ function mod(n){return((n%NUM_FACES)+NUM_FACES)%NUM_FACES;}
 function assignFaces(){
  const qFront=new THREE.Quaternion();
  const qRight=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),Math.PI/2);
+ const qLeft=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),-Math.PI/2);
  const qTop=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),-Math.PI/2);
- const ci=mod(currentIdx),ni=mod(currentIdx+1);
+ const qBot=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),Math.PI/2);
+ const ci=mod(currentIdx);
  sats.forEach(s=>{
   if(isPorte(s.gi)){placeSat(s,qFront);s.mesh.visible=!!getDom(0,s.gi);if(s.mesh.parent!==cubeGroup)cubeGroup.attach(s.mesh);return;}
   if(s.tab===ci){placeSat(s,qFront);if(s.mesh.parent!==cubeGroup)cubeGroup.attach(s.mesh);}
-  else if(s.tab===ni){placeSat(s,qRight);if(s.mesh.parent!==cubeGroup)cubeGroup.attach(s.mesh);}
  });
 }
 function refreshZoom(){
@@ -215,8 +216,18 @@ function refreshZoom(){
  targetCamZ=gridH/2/Math.tan(vFov/2)+1.2;
  targetCamX=0;
 }
-function navRight(){if(busy||isNav)return;busy=true;isNav=true;navDir=1;navAxis='y';targetQuat.setFromAxisAngle(new THREE.Vector3(0,1,0),-Math.PI/2);sats.forEach(s=>{if(s.tab===mod(currentIdx)||s.tab===mod(currentIdx+1))s.mesh.visible=true;});}
-function navLeft(){if(busy||isNav)return;busy=true;isNav=true;navDir=-1;navAxis='y';targetQuat.setFromAxisAngle(new THREE.Vector3(0,1,0),Math.PI/2);sats.forEach(s=>{if(s.tab===mod(currentIdx)||s.tab===mod(currentIdx-1))s.mesh.visible=true;});}
+function navRight(){if(busy||isNav)return;busy=true;isNav=true;navDir=1;navAxis='y';
+ const qR=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),Math.PI/2);
+ const ni=mod(currentIdx+1);
+ sats.forEach(s=>{if(s.tab===ni&&!isPorte(s.gi))placeSat(s,qR);});
+ targetQuat.setFromAxisAngle(new THREE.Vector3(0,1,0),-Math.PI/2);
+ sats.forEach(s=>{if(s.tab===mod(currentIdx)||s.tab===ni)s.mesh.visible=true;});}
+function navLeft(){if(busy||isNav)return;busy=true;isNav=true;navDir=-1;navAxis='y';
+ const qL=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),-Math.PI/2);
+ const ni=mod(currentIdx-1);
+ sats.forEach(s=>{if(s.tab===ni&&!isPorte(s.gi))placeSat(s,qL);});
+ targetQuat.setFromAxisAngle(new THREE.Vector3(0,1,0),Math.PI/2);
+ sats.forEach(s=>{if(s.tab===mod(currentIdx)||s.tab===ni)s.mesh.visible=true;});}
 function navUp(){if(busy||isNav)return;busy=true;isNav=true;navDir=1;navAxis='x';
  const qTop=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),-Math.PI/2);
  const ni=mod(currentIdx+1);
