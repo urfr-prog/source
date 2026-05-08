@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>ADAM Grid — v19 · Three.js · Centro Unifié</title>
+<title>ADAM Grid — v2 · 3×6 · Flip XY</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--cell:min(80px,20vw);--gap:8px;--grid-w:calc(var(--cell)*3 + var(--gap)*2)}
 html,body{height:100%;overflow:hidden;touch-action:none}
 body{background:#12131a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;user-select:none;color:rgba(180,180,190,0.5)}
-#c{width:var(--grid-w);height:calc(var(--cell)*5 + var(--gap)*4);touch-action:none;cursor:default;border-radius:4px}
+#c{width:var(--grid-w);height:calc(var(--cell)*6 + var(--gap)*5);touch-action:none;cursor:default;border-radius:4px}
 .top-bar{position:fixed;top:env(safe-area-inset-top,8px);left:0;right:0;display:flex;flex-direction:column;align-items:center;gap:4px;z-index:10}
 .logo{display:flex;align-items:center;gap:4px;height:36px;cursor:pointer}
 .logo-icon{width:32px;height:32px}
@@ -48,16 +48,16 @@ body{background:#12131a;display:flex;flex-direction:column;align-items:center;ju
 <div style="display:none"><span id="scoreVal">0</span><span id="comboVal">×1</span><span id="bestVal">0</span></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-const COLS=3,ROWS=5,TOTAL=15,PORTE_POSITIONS=[7],NUM_FACES=4;
+const COLS=3,ROWS=6,TOTAL=18,PORTE_POSITIONS=[7],NUM_FACES=2;
 const isPorte=i=>PORTE_POSITIONS.includes(i);
 const STATE_ORDER=['white','silver','gold','emerald','cosmic','supernovae'];
 const STATE_MULT={white:1,silver:2,gold:3,emerald:5,cosmic:10,supernovae:20};
 const PTS={simple:100,twin:1000};
 const GAP=1.08,HALF=0.52,SAT_DEPTH=0.06,SAT_LIFT=0.08;
-const FACE_ROT=[0,Math.PI/2,Math.PI,-Math.PI/2];
+const FACE_ROT=[0,Math.PI/2];
 const CAM_Z_MIN=4,CAM_Z_MAX=20;
 const BANK=['chevron','circle','twoCircles','line','threeLines','twoPoints','square','wave'];
-const SEEDS=[12345,67890,24680,13579];
+const SEEDS=[12345,67890];
 const ICO={
  chevron:{f1:'M20 32L45 12L70 32',f2:'M20 12L45 32L70 12',t:'path'},
  circle:{f1:'45,22,12',f2:'45,22,12',t:'circle'},
@@ -116,7 +116,7 @@ function getDominoTex(f1,f2,rot,state){
  img.src=url;_tc[k]=tex;return tex;
 }
 // ══ JEU ══
-let allDom=[[],[],[],[]],allHist=[[],[],[],[]],allScoreHist=[[],[],[],[]];
+let allDom=[[],[]],allHist=[[],[]],allScoreHist=[[],[]];
 let score=0,bestScore=0,comboCount=0,lastFusionTime=0;
 let fusionCounts={silver:0,gold:0,emerald:0,cosmic:0,supernovae:0};
 function srand(seed){let s=seed;return()=>{s=(s*1103515245+12345)&0x7fffffff;return s/0x7fffffff;};}
@@ -189,24 +189,47 @@ function mkSat(){
  g.userData={numMesh:n,edgeLines:el,glowMesh:gl,ringCanvas:rCv,ringTex:rTex,ringMesh:rMesh,haloCanvas:gCv,haloTex:gTex,haloSprite:gSpr,isSat:true};return g;
 }
 const sats=[];
-function g2l(gx,gy){return{x:(gx-1)*GAP,y:-(gy-2)*GAP};}
-function placeSat(s,fry){const q=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),fry);s.mesh.position.copy(new THREE.Vector3(s.lx,s.ly,HALF+SAT_LIFT).applyQuaternion(q));s.mesh.quaternion.copy(q);s.baseQuat=q.clone();}
+function g2l(gx,gy){return{x:(gx-1)*GAP,y:-(gy-2.5)*GAP};}
+function placeSat(s,q){s.mesh.position.copy(new THREE.Vector3(s.lx,s.ly,HALF+SAT_LIFT).applyQuaternion(q));s.mesh.quaternion.copy(q);s.baseQuat=q.clone();}
+function faceQuat(faceRotIdx){return new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),FACE_ROT[faceRotIdx]);}
 function buildSats(){sats.forEach(s=>cubeGroup.remove(s.mesh));sats.length=0;for(let fi=0;fi<NUM_FACES;fi++){for(let i=0;i<TOTAL;i++){if(isPorte(i)&&fi!==0)continue;const dm=getDom(fi,i);if(!dm)continue;const{x,y}=getPos(i);const p=g2l(x,y);const m=mkSat();m.visible=false;cubeGroup.add(m);sats.push({gi:i,tab:fi,lx:p.x,ly:p.y,mesh:m,baseQuat:null});}}}
 function rebuildFace(fi){const old=sats.filter(s=>s.tab===fi&&(!isPorte(s.gi)||fi===0));old.forEach(s=>{cubeGroup.remove(s.mesh);sats.splice(sats.indexOf(s),1);});for(let i=0;i<TOTAL;i++){if(isPorte(i)&&fi!==0)continue;const dm=getDom(fi,i);if(!dm)continue;const{x,y}=getPos(i);const p=g2l(x,y);const m=mkSat();m.visible=false;cubeGroup.add(m);sats.push({gi:i,tab:fi,lx:p.x,ly:p.y,mesh:m,baseQuat:null});}}
 function updSatTex(s){const d=getDom(s.tab,s.gi);if(!d){s.mesh.visible=false;return;}const t=getDominoTex(d.face1,d.face2,d.rotation,d.state||'white');s.mesh.userData.numMesh.material.map=t;s.mesh.userData.numMesh.material.needsUpdate=true;const st=d.state||'white';const col=st==='cosmic'?0x8338ec:st==='supernovae'?0xff8c00:st==='emerald'?0x34d399:st==='gold'?0xffd700:st==='silver'?0x06b6d4:0xb4b4be;s.mesh.userData.edgeLines.material.color.set(col);s.mesh.userData.edgeLines.material.opacity=st==='white'?0.12:0.3;}
 // ══ NAV ══
-let currentIdx=0,isNav=false,busy=false,navDir=0,targetQuat=new THREE.Quaternion(),targetCamX=0,targetCamZ=11;
+let currentIdx=0,isNav=false,busy=false,navDir=0,navAxis='y',targetQuat=new THREE.Quaternion(),targetCamX=0,targetCamZ=11;
 function mod(n){return((n%NUM_FACES)+NUM_FACES)%NUM_FACES;}
-function assignFaces(){const fm=[[mod(currentIdx),0],[mod(currentIdx+1),1],[mod(currentIdx-1),3]];sats.forEach(s=>{if(isPorte(s.gi)){placeSat(s,FACE_ROT[0]);s.mesh.visible=!!getDom(0,s.gi);if(s.mesh.parent!==cubeGroup)cubeGroup.attach(s.mesh);return;}const e=fm.find(f=>f[0]===s.tab);if(e){placeSat(s,FACE_ROT[e[1]]);if(s.mesh.parent!==cubeGroup)cubeGroup.attach(s.mesh);}});}
+function assignFaces(){
+ const qFront=new THREE.Quaternion();
+ const qRight=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),Math.PI/2);
+ const qTop=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),-Math.PI/2);
+ const ci=mod(currentIdx),ni=mod(currentIdx+1);
+ sats.forEach(s=>{
+  if(isPorte(s.gi)){placeSat(s,qFront);s.mesh.visible=!!getDom(0,s.gi);if(s.mesh.parent!==cubeGroup)cubeGroup.attach(s.mesh);return;}
+  if(s.tab===ci){placeSat(s,qFront);if(s.mesh.parent!==cubeGroup)cubeGroup.attach(s.mesh);}
+  else if(s.tab===ni){placeSat(s,qRight);if(s.mesh.parent!==cubeGroup)cubeGroup.attach(s.mesh);}
+ });
+}
 function refreshZoom(){
  const gridH=(ROWS-1)*GAP+1;
  const vFov=camera.fov*Math.PI/180;
  targetCamZ=gridH/2/Math.tan(vFov/2)+1.2;
  targetCamX=0;
 }
-function navRight(){if(busy||isNav)return;busy=true;isNav=true;navDir=1;targetQuat.setFromAxisAngle(new THREE.Vector3(0,1,0),-Math.PI/2);sats.forEach(s=>{if(s.tab===mod(currentIdx)||s.tab===mod(currentIdx+1))s.mesh.visible=true;});}
-function navLeft(){if(busy||isNav)return;busy=true;isNav=true;navDir=-1;targetQuat.setFromAxisAngle(new THREE.Vector3(0,1,0),Math.PI/2);sats.forEach(s=>{if(s.tab===mod(currentIdx)||s.tab===mod(currentIdx-1))s.mesh.visible=true;});}
-function onNavDone(){currentIdx=mod(currentIdx+navDir);cubeGroup.quaternion.identity();targetQuat.identity();navDir=0;assignFaces();isNav=false;busy=false;refreshZoom();updateUI();}
+function navRight(){if(busy||isNav)return;busy=true;isNav=true;navDir=1;navAxis='y';targetQuat.setFromAxisAngle(new THREE.Vector3(0,1,0),-Math.PI/2);sats.forEach(s=>{if(s.tab===mod(currentIdx)||s.tab===mod(currentIdx+1))s.mesh.visible=true;});}
+function navLeft(){if(busy||isNav)return;busy=true;isNav=true;navDir=-1;navAxis='y';targetQuat.setFromAxisAngle(new THREE.Vector3(0,1,0),Math.PI/2);sats.forEach(s=>{if(s.tab===mod(currentIdx)||s.tab===mod(currentIdx-1))s.mesh.visible=true;});}
+function navUp(){if(busy||isNav)return;busy=true;isNav=true;navDir=1;navAxis='x';
+ const qTop=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),-Math.PI/2);
+ const ni=mod(currentIdx+1);
+ sats.forEach(s=>{if(s.tab===ni&&!isPorte(s.gi))placeSat(s,qTop);});
+ targetQuat.setFromAxisAngle(new THREE.Vector3(1,0,0),Math.PI/2);
+ sats.forEach(s=>{if(s.tab===mod(currentIdx)||s.tab===ni)s.mesh.visible=true;});}
+function navDown(){if(busy||isNav)return;busy=true;isNav=true;navDir=-1;navAxis='x';
+ const qBot=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),Math.PI/2);
+ const ni=mod(currentIdx-1);
+ sats.forEach(s=>{if(s.tab===ni&&!isPorte(s.gi))placeSat(s,qBot);});
+ targetQuat.setFromAxisAngle(new THREE.Vector3(1,0,0),-Math.PI/2);
+ sats.forEach(s=>{if(s.tab===mod(currentIdx)||s.tab===ni)s.mesh.visible=true;});}
+function onNavDone(){currentIdx=mod(currentIdx+navDir);cubeGroup.quaternion.identity();targetQuat.identity();navDir=0;navAxis='y';assignFaces();isNav=false;busy=false;refreshZoom();updateUI();}
 // ══ GAME ══
 let gameAnim=false;
 function saveState(){const fi=mod(currentIdx);allHist[fi].push({allDom:JSON.parse(JSON.stringify(allDom))});allScoreHist[fi].push(score);if(allHist[fi].length>20){allHist[fi].shift();allScoreHist[fi].shift();}}
@@ -529,7 +552,7 @@ function applyGrav(){
   else{
    animMoves.forEach(am=>{
     const sat=sats.find(s=>s.mesh===am.mesh);
-    if(sat)placeSat(sat,FACE_ROT[0]);
+    if(sat)placeSat(sat,new THREE.Quaternion());
    });
    updCubeTexFromPorte();
    gameAnim=false;
@@ -555,16 +578,18 @@ canvas.addEventListener('pointermove',e=>{if(pS&&Math.hypot(e.clientX-pS.x,e.cli
 canvas.addEventListener('pointerup',e=>{if(!pS)return;const dx=e.clientX-pS.x,dy=e.clientY-pS.y;
  if(!pM){if(pCb)rotatePorte();else if(pSat)rotateDom(pSat.gi);}
  else if(Math.hypot(dx,dy)>=15){
-  // Horizontal swipe = nav
+  // Horizontal swipe = nav Y
   if(Math.abs(dx)>Math.abs(dy)*1.5&&Math.abs(dx)>40){if(dx<0)navRight();else navLeft();}
+  // Vertical swipe = nav X
+  else if(Math.abs(dy)>Math.abs(dx)*1.5&&Math.abs(dy)>40){if(dy<0)navUp();else navDown();}
   else{const dir=detectDiag(dx,dy);if(dir){let gx,gy;if(pSat){const p=getPos(pSat.gi);gx=p.x;gy=p.y;}else if(pCb){gx=1;gy=2;}if(gx!==undefined){const group=getGroup(gx,gy,dir);if(group){const fi=mod(currentIdx);if(group.some(i=>getDom(fi,i)))execGroupRot(group,isCW(dir));}}}}}
  pS=null;pSat=null;pCb=false;});
 canvas.addEventListener('pointercancel',()=>{pS=null;pSat=null;pCb=false;});
-document.addEventListener('keydown',e=>{if(e.key==='ArrowRight'){navRight();e.preventDefault();}else if(e.key==='ArrowLeft'){navLeft();e.preventDefault();}});
+document.addEventListener('keydown',e=>{if(e.key==='ArrowRight'){navRight();e.preventDefault();}else if(e.key==='ArrowLeft'){navLeft();e.preventDefault();}else if(e.key==='ArrowUp'){navUp();e.preventDefault();}else if(e.key==='ArrowDown'){navDown();e.preventDefault();}});
 
 // ══ UI ══
 const dotsEl=document.getElementById('navDots');
-for(let i=0;i<NUM_FACES;i++){const d=document.createElement('div');d.className='nav-dot'+(i===0?' active':'');d.addEventListener('click',()=>{if(!isNav&&!busy){const diff=i-mod(currentIdx);if(diff>0)navRight();else if(diff<0)navLeft();}});dotsEl.appendChild(d);}
+for(let i=0;i<NUM_FACES;i++){const d=document.createElement('div');d.className='nav-dot'+(i===0?' active':'');d.addEventListener('click',()=>{if(!isNav&&!busy){if(i===1&&mod(currentIdx)===0)navRight();else if(i===0&&mod(currentIdx)===1)navLeft();}});dotsEl.appendChild(d);}
 function updateUI(){const idx=mod(currentIdx);document.getElementById('navLabel').textContent=`T${idx+1}`;dotsEl.querySelectorAll('.nav-dot').forEach((d,i)=>d.classList.toggle('active',i===idx));}
 function updateScore(){document.getElementById('scoreVal').textContent=score.toLocaleString();const ce=document.getElementById('comboVal');ce.textContent=comboCount>1?`×${(1+(comboCount-1)*0.5).toFixed(1)}`:'×1';ce.style.opacity=comboCount>1?'1':'0.5';}
 document.getElementById('btnReset').addEventListener('click',()=>{const fi=mod(currentIdx);initFace(fi);const newPorte={face1:BANK[Math.floor(srand(SEEDS[fi]+7)()*BANK.length)],face2:BANK[Math.floor(srand(SEEDS[fi]+77)()*BANK.length)],rotation:0,state:'white'};PORTE_POSITIONS.forEach(pi=>setDom(fi,pi,newPorte));score=0;comboCount=0;lastFusionTime=0;fusionCounts={silver:0,gold:0,emerald:0,cosmic:0,supernovae:0};rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();updateScore();});
