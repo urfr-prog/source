@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>ADAM Grid — v2 · 3×6 · Flip XY</title>
+<title>ADAM Grid — v23 · Superposition</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--cell:min(80px,20vw);--gap:8px;--grid-w:calc(var(--cell)*3 + var(--gap)*2)}
@@ -22,8 +22,11 @@ body{background:#12131a;display:flex;flex-direction:column;align-items:center;ju
 .ctrl-row{display:flex;gap:8px}
 .dbtn{background:transparent;border:1px solid rgba(180,180,190,0.25);color:rgba(180,180,190,0.5);padding:6px 12px;border-radius:8px;cursor:pointer;font-size:0.7rem;font-family:inherit;letter-spacing:0.05em}
 .dbtn:hover{border-color:rgba(180,180,190,0.5);color:rgba(180,180,190,0.8)}
-.floating-pts{position:fixed;pointer-events:none;font-size:1.2rem;font-weight:bold;color:#ffd700;text-shadow:0 0 10px rgba(255,215,0,0.8);animation:floatUp 1s ease-out forwards;z-index:1000}
-@keyframes floatUp{0%{opacity:1;transform:translateY(0) scale(1)}100%{opacity:0;transform:translateY(-60px) scale(1.3)}}
+.match-info{font-size:0.65rem;color:rgba(126,200,227,0.5);letter-spacing:0.1em}
+.win-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;opacity:0;pointer-events:none;transition:opacity 0.5s}
+.win-overlay.show{opacity:1;pointer-events:auto}
+.win-text{font-size:2rem;color:#ffd700;text-shadow:0 0 30px rgba(255,215,0,0.6);letter-spacing:0.2em;margin-bottom:20px}
+.win-sub{font-size:0.9rem;color:rgba(220,220,230,0.7);margin-bottom:30px}
 </style>
 </head>
 <body>
@@ -42,22 +45,22 @@ body{background:#12131a;display:flex;flex-direction:column;align-items:center;ju
   <button class="dbtn" id="btnUndo">Undo</button>
   <button class="dbtn" id="btnReset">Reset</button>
  </div>
+ <div class="match-info" id="matchInfo">0 / 15</div>
 </div>
 <canvas id="c"></canvas>
-<!-- score masqué mais éléments conservés pour le JS -->
-<div style="display:none"><span id="scoreVal">0</span><span id="comboVal">×1</span><span id="bestVal">0</span></div>
+<div class="win-overlay" id="winOverlay">
+ <div class="win-text">COSMIQUE</div>
+ <div class="win-sub">Superposition parfaite — tous les dominos alignés</div>
+ <button class="dbtn" onclick="document.getElementById('winOverlay').classList.remove('show')">OK</button>
+</div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-const COLS=3,ROWS=5,TOTAL=15,PORTE_POSITIONS=[7],NUM_FACES=2;
-const isPorte=i=>PORTE_POSITIONS.includes(i);
+const COLS=3,ROWS=5,TOTAL=15,NUM_FACES=4;
 const STATE_ORDER=['white','silver','gold','emerald','cosmic','supernovae'];
-const STATE_MULT={white:1,silver:2,gold:3,emerald:5,cosmic:10,supernovae:20};
-const PTS={simple:100,twin:1000};
 const GAP=1.08,HALF=0.52,SAT_DEPTH=0.06,SAT_LIFT=0.08;
-const FACE_ROT=[0,Math.PI/2];
+const FACE_ROT=[0,Math.PI/2,Math.PI,-Math.PI/2];
 const CAM_Z_MIN=4,CAM_Z_MAX=20;
 const BANK=['chevron','circle','twoCircles','line','threeLines','twoPoints','square','wave'];
-const SEEDS=[12345,67890];
 const ICO={
  chevron:{f1:'M20 32L45 12L70 32',f2:'M20 12L45 32L70 12',t:'path'},
  circle:{f1:'45,22,12',f2:'45,22,12',t:'circle'},
@@ -86,10 +89,8 @@ const STC={
  gold:{border:'rgba(255,215,0,0.7)',icon:'#ffd700',pt:'#ffd700',sep:'rgba(255,215,0,0.4)',flt:'drop-shadow(0 0 4px rgba(255,215,0,0.6))',bw:1},
  emerald:{border:'rgba(52,211,153,0.9)',icon:'#34d399',pt:'#34d399',sep:'rgba(52,211,153,0.6)',flt:'drop-shadow(0 0 6px rgba(52,211,153,0.9))',bw:1},
  cosmic:{border:'rgba(131,56,236,0.7)',icon:'#c4b5fd',pt:'#c4b5fd',sep:'rgba(196,181,253,0.6)',flt:'drop-shadow(0 0 6px rgba(131,56,236,0.7))',bw:2},
- supernovae:{border:'rgba(255,140,0,0.7)',icon:'#ffeb3b',pt:'#ffeb3b',sep:'rgba(255,235,59,0.6)',flt:'drop-shadow(0 0 6px rgba(255,215,0,0.7))',bw:3},
- ice:{border:'rgba(220,235,248,0.45)',icon:'rgba(220,235,248,0.7)',pt:'rgba(220,235,248,0.7)',sep:'rgba(220,235,248,0.25)',flt:'drop-shadow(0 0 4px rgba(220,235,248,0.4))',bw:1}
+ supernovae:{border:'rgba(255,140,0,0.7)',icon:'#ffeb3b',pt:'#ffeb3b',sep:'rgba(255,235,59,0.6)',flt:'drop-shadow(0 0 6px rgba(255,215,0,0.7))',bw:3}
 };
-// SVG → CanvasTexture
 const _tc={};
 function getDominoTex(f1,f2,rot,state){
  const k=f1+'|'+f2+'|'+rot+'|'+state;if(_tc[k])return _tc[k];
@@ -116,27 +117,149 @@ function getDominoTex(f1,f2,rot,state){
  img.src=url;_tc[k]=tex;return tex;
 }
 // ══ JEU ══
-let allDom=[[],[]],allHist=[[],[]],allScoreHist=[[],[]];
-let score=0,bestScore=0,comboCount=0,lastFusionTime=0;
-let fusionCounts={silver:0,gold:0,emerald:0,cosmic:0,supernovae:0};
+let allDom=[[],[],[],[]],allHist=[];
+// Référence : le tableau 0 (T1) est la cible
+// Les 4 tableaux ont les mêmes 15 dominos mais mélangés et avec des rotations différentes
 function srand(seed){let s=seed;return()=>{s=(s*1103515245+12345)&0x7fffffff;return s/0x7fffffff;};}
-function initFace(fi){const rng=srand(SEEDS[fi]);allDom[fi]=Array.from({length:TOTAL},(_,i)=>{if(isPorte(i))return null;const x=i%COLS,y=Math.floor(i/COLS);return{face1:BANK[Math.floor(rng()*BANK.length)],face2:BANK[Math.floor(rng()*BANK.length)],rotation:((x+y)%2===0)?0:90,state:'white'};});allHist[fi]=[];allScoreHist[fi]=[];}
-// Getter: lit la case (les portes sont dans allDom comme les autres)
-function getDom(fi,i){return allDom[fi]?allDom[fi][i]:null;}
-// Setter: écrit la case. Si position-porte, propage à tous les layers (liaison)
-function setDom(fi,i,v){
- if(isPorte(i)){
-  for(let f=0;f<NUM_FACES;f++)allDom[f][i]=v?{...v}:null;
-  updCubeTexFromPorte();
- }else{
-  allDom[fi][i]=v;
+
+// Générer les 15 dominos de référence (partagés par les 4 tableaux)
+const REF_SEED=42;
+const REF_DOMINOS=[];
+(function(){
+ const rng=srand(REF_SEED);
+ for(let i=0;i<TOTAL;i++){
+  REF_DOMINOS.push({
+   face1:BANK[Math.floor(rng()*BANK.length)],
+   face2:BANK[Math.floor(rng()*BANK.length)],
+   rotation:0,
+   state:'white'
+  });
+ }
+})();
+
+// Fisher-Yates shuffle avec seed
+function shuffleArray(arr,rng){
+ const a=[...arr];
+ for(let i=a.length-1;i>0;i--){
+  const j=Math.floor(rng()*((i+1)|0));
+  [a[i],a[j]]=[a[j],a[i]];
+ }
+ return a;
+}
+
+const FACE_SEEDS=[11111,22222,33333,44444];
+
+function initAllFaces(){
+ // T1 = référence (ordre original, rotation 0)
+ allDom[0]=REF_DOMINOS.map(d=>({...d}));
+ // T2, T3, T4 = mêmes dominos, ordre mélangé, rotations aléatoires
+ // Garantir qu'aucune position ne matche entre aucune paire de faces
+ let seedOffset=0;
+ let valid=false;
+ while(!valid){
+  for(let fi=1;fi<NUM_FACES;fi++){
+   const rng=srand(FACE_SEEDS[fi]+seedOffset);
+   const indices=shuffleArray(Array.from({length:TOTAL},(_,i)=>i),rng);
+   allDom[fi]=new Array(TOTAL);
+   for(let i=0;i<TOTAL;i++){
+    const srcDom=REF_DOMINOS[indices[i]];
+    const rotSteps=Math.floor(rng()*4);
+    allDom[fi][i]={
+     face1:srcDom.face1,
+     face2:srcDom.face2,
+     rotation:(rotSteps*90)%360,
+     state:'white'
+    };
+   }
+  }
+  // Vérifier : aucune position ne doit matcher entre 2 faces quelconques
+  valid=true;
+  for(let i=0;i<TOTAL&&valid;i++){
+   for(let fa=0;fa<NUM_FACES&&valid;fa++){
+    for(let fb=fa+1;fb<NUM_FACES&&valid;fb++){
+     if(domMatch(allDom[fa][i],allDom[fb][i]))valid=false;
+    }
+   }
+  }
+  if(!valid)seedOffset++;
  }
 }
+
+function getDom(fi,i){return allDom[fi]?allDom[fi][i]:null;}
+function setDom(fi,i,v){allDom[fi][i]=v;}
 function getPos(i){return{x:i%COLS,y:Math.floor(i/COLS)};}
 function getIdx(x,y){return(x<0||x>=COLS||y<0||y>=ROWS)?-1:y*COLS+x;}
-function getExposed(dm,dir){if(!dm)return null;const r=((dm.rotation%360)+360)%360;const m={0:{top:'face1',bottom:'face2'},90:{left:'face2',right:'face1'},180:{top:'face2',bottom:'face1'},270:{left:'face1',right:'face2'}};return m[r]?.[dir]?dm[m[r][dir]]:null;}
-function getRemaining(dm,ed){if(!dm)return null;const r=((dm.rotation%360)+360)%360;const m={0:{top:'face2',bottom:'face1'},90:{right:'face2',left:'face1'},180:{top:'face1',bottom:'face2'},270:{right:'face1',left:'face2'}};return m[r]?.[ed]?dm[m[r][ed]]:null;}
-function areTwins(a,b){if(!a||!b)return false;const r1=((a.rotation%360)+360)%360,r2=((b.rotation%360)+360)%360;if(r1===r2&&a.face1===b.face1&&a.face2===b.face2)return true;if(Math.abs(r1-r2)===180&&a.face1===b.face2&&a.face2===b.face1)return true;return false;}
+
+// Comparer deux dominos : même identité + même rotation
+function domMatch(a,b){
+ if(!a||!b)return false;
+ return a.face1===b.face1&&a.face2===b.face2&&((a.rotation%360+360)%360)===((b.rotation%360+360)%360);
+}
+
+// Locks : pour chaque position, quelles faces sont verrouillées entre elles
+// locked[i] = Set de face indices qui sont alignées
+let locked=Array.from({length:TOTAL},()=>new Set());
+
+function checkMatches(){
+ let count=0;
+ for(let i=0;i<TOTAL;i++){
+  let allMatch=true;
+  const d0=allDom[0][i];
+  if(!d0){allMatch=false;}
+  else{for(let f=1;f<NUM_FACES;f++){if(!domMatch(d0,allDom[f][i])){allMatch=false;break;}}}
+  if(allMatch)count++;
+ }
+ return count;
+}
+
+// Déterminer les groupes de faces qui matchent, verrouiller, assigner les états
+function updateStates(){
+ for(let i=0;i<TOTAL;i++){
+  // Trouver le plus grand groupe de faces identiques à cette position
+  // On cherche quelles faces sont identiques entre elles
+  const groups=[];// groups of face indices with same domino+rot
+  const used=new Set();
+  for(let f=0;f<NUM_FACES;f++){
+   if(used.has(f))continue;
+   const df=allDom[f][i];
+   if(!df){used.add(f);continue;}
+   const grp=[f];used.add(f);
+   for(let g=f+1;g<NUM_FACES;g++){
+    if(used.has(g))continue;
+    if(domMatch(df,allDom[g][i])){grp.push(g);used.add(g);}
+   }
+   groups.push(grp);
+  }
+  // Le plus grand groupe détermine le lock
+  let bestGrp=[];
+  groups.forEach(g=>{if(g.length>bestGrp.length)bestGrp=g;});
+  
+  // Mettre à jour les locks
+  if(bestGrp.length>=2){
+   locked[i]=new Set(bestGrp);
+  }else{
+   locked[i]=new Set();
+  }
+  
+  // Assigner l'état basé sur la taille du groupe
+  // 1 = white, 2 = silver (locked 2), 3 = gold (locked 3), 4 = cosmic (locked 4)
+  const stateMap={1:'white',2:'silver',3:'gold',4:'cosmic'};
+  const matchState=stateMap[bestGrp.length]||'white';
+  
+  // Appliquer l'état aux faces du groupe, white aux autres
+  for(let f=0;f<NUM_FACES;f++){
+   if(allDom[f][i]){
+    allDom[f][i].state=bestGrp.includes(f)?matchState:'white';
+   }
+  }
+ }
+}
+
+// Vérifier si un domino est verrouillé sur une face donnée
+function isLocked(fi,gi){
+ return locked[gi]&&locked[gi].has(fi);
+}
+
 // ══ THREE ══
 const canvas=document.getElementById('c');
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true});renderer.setClearColor(0x12131a);
@@ -145,26 +268,20 @@ scene.add(new THREE.AmbientLight(0xffffff,0.8));
 function resize(){const c=canvas;const w=c.clientWidth,h=c.clientHeight;renderer.setSize(w,h);renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));camera.aspect=w/h;camera.updateProjectionMatrix();}
 resize();window.addEventListener('resize',resize);
 const cubeGroup=new THREE.Group();scene.add(cubeGroup);
-// Porte cube
-const pMats=[];for(let i=0;i<6;i++)pMats.push(new THREE.MeshBasicMaterial({transparent:true}));
-const pMesh=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),pMats);pMesh.userData.isCube=true;cubeGroup.add(pMesh);
-function updCubeTexFromPorte(){
- // Affiche le domino-porte principal (index 7) sur le cube central
- // Comme les portes sont synchronisées, on lit depuis allDom[0]
- const PORTE_DISPLAY=PORTE_POSITIONS[0];
- const p=allDom[0]?allDom[0][PORTE_DISPLAY]:null;
- const st=p?p.state:'white';
- const t=p?getDominoTex(p.face1,p.face2,p.rotation,st):null;
- pMats.forEach(m=>{m.map=t;m.opacity=p?1:0;m.needsUpdate=true;});
-}
-updCubeTexFromPorte();
+
+// Cube central décoratif (petit, sans porte)
+const cubeMat=new THREE.MeshBasicMaterial({color:0x1a1b26,transparent:true,opacity:0.3});
+const cubeMesh=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.5,0.5),cubeMat);
+cubeMesh.userData.isCube=true;cubeGroup.add(cubeMesh);
+
 // Halo
 const hcv=document.createElement('canvas');hcv.width=256;hcv.height=256;const hx=hcv.getContext('2d');
 const hg=hx.createRadialGradient(128,128,0,128,128,128);
 hg.addColorStop(0,'rgba(220,235,248,0.25)');hg.addColorStop(0.3,'rgba(200,220,240,0.12)');hg.addColorStop(0.6,'rgba(180,210,235,0.04)');hg.addColorStop(1,'rgba(180,210,235,0)');
 hx.fillStyle=hg;hx.fillRect(0,0,256,256);
 const haloMat=new THREE.SpriteMaterial({map:new THREE.CanvasTexture(hcv),transparent:true,opacity:0.7,depthWrite:false});
-const haloSpr=new THREE.Sprite(haloMat);haloSpr.scale.set(2.5,2.5,1);cubeGroup.add(haloSpr);
+const haloSpr=new THREE.Sprite(haloMat);haloSpr.scale.set(2,2,1);cubeGroup.add(haloSpr);
+
 // Sat mesh
 function rrS(w,h,r){const s=new THREE.Shape(),hw=w/2,hh=h/2;s.moveTo(-hw+r,-hh);s.lineTo(hw-r,-hh);s.quadraticCurveTo(hw,-hh,hw,-hh+r);s.lineTo(hw,hh-r);s.quadraticCurveTo(hw,hh,hw-r,hh);s.lineTo(-hw+r,hh);s.quadraticCurveTo(-hw,hh,-hw,hh-r);s.lineTo(-hw,-hh+r);s.quadraticCurveTo(-hw,-hh,-hw+r,-hh);return s;}
 function mkSat(){
@@ -176,12 +293,11 @@ function mkSat(){
  const sc=document.createElement('canvas');sc.width=128;sc.height=128;const sx=sc.getContext('2d');const sg=sx.createRadialGradient(64,64,10,64,64,60);sg.addColorStop(0,'rgba(0,0,0,0.3)');sg.addColorStop(0.5,'rgba(0,0,0,0.1)');sg.addColorStop(1,'rgba(0,0,0,0)');sx.fillStyle=sg;sx.fillRect(0,0,128,128);
  const sm=new THREE.Mesh(new THREE.PlaneGeometry(SZ*1.2,SZ*1.2),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(sc),transparent:true,opacity:0.45,depthWrite:false}));sm.position.z=-SAT_DEPTH/2-SAT_LIFT+0.005;g.add(sm);
  const gl=new THREE.Mesh(new THREE.ShapeGeometry(rrS(SZ+0.06,SZ+0.06,R+0.03)),new THREE.MeshBasicMaterial({color:0x7ec8e3,transparent:true,opacity:0}));gl.position.z=-SAT_DEPTH/2-0.005;g.add(gl);
- // Ring pour bordure arc-en-ciel (cosmic/supernovae)
+ // Ring pour bordure (cosmic/supernovae)
  const rCv=document.createElement('canvas');rCv.width=256;rCv.height=256;
  const rTex=new THREE.CanvasTexture(rCv);
  const rMesh=new THREE.Mesh(new THREE.PlaneGeometry(SZ,SZ),new THREE.MeshBasicMaterial({map:rTex,transparent:true,opacity:0,depthWrite:false,side:THREE.DoubleSide}));
  rMesh.position.z=SAT_DEPTH/2+0.003;g.add(rMesh);
- // Glow sprite pour halo large
  const gCv=document.createElement('canvas');gCv.width=128;gCv.height=128;
  const gTex=new THREE.CanvasTexture(gCv);
  const gSpr=new THREE.Sprite(new THREE.SpriteMaterial({map:gTex,transparent:true,opacity:0,depthWrite:false}));
@@ -190,68 +306,36 @@ function mkSat(){
 }
 const sats=[];
 function g2l(gx,gy){return{x:(gx-1)*GAP,y:-(gy-2)*GAP};}
-function placeSat(s,q){s.mesh.position.copy(new THREE.Vector3(s.lx,s.ly,HALF+SAT_LIFT).applyQuaternion(q));s.mesh.quaternion.copy(q);s.baseQuat=q.clone();}
-function faceQuat(faceRotIdx){return new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),FACE_ROT[faceRotIdx]);}
-function buildSats(){sats.forEach(s=>cubeGroup.remove(s.mesh));sats.length=0;for(let fi=0;fi<NUM_FACES;fi++){for(let i=0;i<TOTAL;i++){if(isPorte(i)&&fi!==0)continue;const dm=getDom(fi,i);if(!dm)continue;const{x,y}=getPos(i);const p=g2l(x,y);const m=mkSat();m.visible=false;cubeGroup.add(m);sats.push({gi:i,tab:fi,lx:p.x,ly:p.y,mesh:m,baseQuat:null});}}}
-function rebuildFace(fi){const old=sats.filter(s=>s.tab===fi&&(!isPorte(s.gi)||fi===0));old.forEach(s=>{cubeGroup.remove(s.mesh);sats.splice(sats.indexOf(s),1);});for(let i=0;i<TOTAL;i++){if(isPorte(i)&&fi!==0)continue;const dm=getDom(fi,i);if(!dm)continue;const{x,y}=getPos(i);const p=g2l(x,y);const m=mkSat();m.visible=false;cubeGroup.add(m);sats.push({gi:i,tab:fi,lx:p.x,ly:p.y,mesh:m,baseQuat:null});}}
+function placeSat(s,fry){const q=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),fry);s.mesh.position.copy(new THREE.Vector3(s.lx,s.ly,HALF+SAT_LIFT).applyQuaternion(q));s.mesh.quaternion.copy(q);s.baseQuat=q.clone();}
+function buildSats(){sats.forEach(s=>cubeGroup.remove(s.mesh));sats.length=0;for(let fi=0;fi<NUM_FACES;fi++){for(let i=0;i<TOTAL;i++){const dm=getDom(fi,i);if(!dm)continue;const{x,y}=getPos(i);const p=g2l(x,y);const m=mkSat();m.visible=false;cubeGroup.add(m);sats.push({gi:i,tab:fi,lx:p.x,ly:p.y,mesh:m,baseQuat:null});}}}
+function rebuildFace(fi){const old=sats.filter(s=>s.tab===fi);old.forEach(s=>{cubeGroup.remove(s.mesh);sats.splice(sats.indexOf(s),1);});for(let i=0;i<TOTAL;i++){const dm=getDom(fi,i);if(!dm)continue;const{x,y}=getPos(i);const p=g2l(x,y);const m=mkSat();m.visible=false;cubeGroup.add(m);sats.push({gi:i,tab:fi,lx:p.x,ly:p.y,mesh:m,baseQuat:null});}}
 function updSatTex(s){const d=getDom(s.tab,s.gi);if(!d){s.mesh.visible=false;return;}const t=getDominoTex(d.face1,d.face2,d.rotation,d.state||'white');s.mesh.userData.numMesh.material.map=t;s.mesh.userData.numMesh.material.needsUpdate=true;const st=d.state||'white';const col=st==='cosmic'?0x8338ec:st==='supernovae'?0xff8c00:st==='emerald'?0x34d399:st==='gold'?0xffd700:st==='silver'?0x06b6d4:0xb4b4be;s.mesh.userData.edgeLines.material.color.set(col);s.mesh.userData.edgeLines.material.opacity=st==='white'?0.12:0.3;}
 // ══ NAV ══
-let currentIdx=0,isNav=false,busy=false,navDir=0,navAxis='y',targetQuat=new THREE.Quaternion(),targetCamX=0,targetCamZ=11;
+let currentIdx=0,isNav=false,busy=false,navDir=0,targetQuat=new THREE.Quaternion(),targetCamX=0,targetCamZ=11;
 function mod(n){return((n%NUM_FACES)+NUM_FACES)%NUM_FACES;}
-function assignFaces(){
- const qFront=new THREE.Quaternion();
- const qRight=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),Math.PI/2);
- const qLeft=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),-Math.PI/2);
- const qTop=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),-Math.PI/2);
- const qBot=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),Math.PI/2);
- const ci=mod(currentIdx);
- sats.forEach(s=>{
-  if(isPorte(s.gi)){placeSat(s,qFront);s.mesh.visible=!!getDom(0,s.gi);if(s.mesh.parent!==cubeGroup)cubeGroup.attach(s.mesh);return;}
-  if(s.tab===ci){placeSat(s,qFront);if(s.mesh.parent!==cubeGroup)cubeGroup.attach(s.mesh);}
- });
-}
+function assignFaces(){const fm=[[mod(currentIdx),0],[mod(currentIdx+1),1],[mod(currentIdx-1),3]];sats.forEach(s=>{const e=fm.find(f=>f[0]===s.tab);if(e){placeSat(s,FACE_ROT[e[1]]);if(s.mesh.parent!==cubeGroup)cubeGroup.attach(s.mesh);}});}
 function refreshZoom(){
  const gridH=(ROWS-1)*GAP+1;
  const vFov=camera.fov*Math.PI/180;
  targetCamZ=gridH/2/Math.tan(vFov/2)+1.2;
  targetCamX=0;
 }
-function navRight(){if(busy||isNav)return;busy=true;isNav=true;navDir=1;navAxis='y';
- const qR=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),Math.PI/2);
- const ni=mod(currentIdx+1);
- sats.forEach(s=>{if(s.tab===ni&&!isPorte(s.gi))placeSat(s,qR);});
- targetQuat.setFromAxisAngle(new THREE.Vector3(0,1,0),-Math.PI/2);
- sats.forEach(s=>{if(s.tab===mod(currentIdx)||s.tab===ni)s.mesh.visible=true;});}
-function navLeft(){if(busy||isNav)return;busy=true;isNav=true;navDir=-1;navAxis='y';
- const qL=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),-Math.PI/2);
- const ni=mod(currentIdx-1);
- sats.forEach(s=>{if(s.tab===ni&&!isPorte(s.gi))placeSat(s,qL);});
- targetQuat.setFromAxisAngle(new THREE.Vector3(0,1,0),Math.PI/2);
- sats.forEach(s=>{if(s.tab===mod(currentIdx)||s.tab===ni)s.mesh.visible=true;});}
-function navUp(){if(busy||isNav)return;busy=true;isNav=true;navDir=1;navAxis='x';
- const qTop=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),-Math.PI/2);
- const ni=mod(currentIdx+1);
- sats.forEach(s=>{if(s.tab===ni&&!isPorte(s.gi))placeSat(s,qTop);});
- targetQuat.setFromAxisAngle(new THREE.Vector3(1,0,0),Math.PI/2);
- sats.forEach(s=>{if(s.tab===mod(currentIdx)||s.tab===ni)s.mesh.visible=true;});}
-function navDown(){if(busy||isNav)return;busy=true;isNav=true;navDir=-1;navAxis='x';
- const qBot=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),Math.PI/2);
- const ni=mod(currentIdx-1);
- sats.forEach(s=>{if(s.tab===ni&&!isPorte(s.gi))placeSat(s,qBot);});
- targetQuat.setFromAxisAngle(new THREE.Vector3(1,0,0),-Math.PI/2);
- sats.forEach(s=>{if(s.tab===mod(currentIdx)||s.tab===ni)s.mesh.visible=true;});}
-function onNavDone(){currentIdx=mod(currentIdx+navDir);cubeGroup.quaternion.identity();targetQuat.identity();navDir=0;navAxis='y';assignFaces();isNav=false;busy=false;refreshZoom();updateUI();}
+function navRight(){if(busy||isNav)return;busy=true;isNav=true;navDir=1;targetQuat.setFromAxisAngle(new THREE.Vector3(0,1,0),-Math.PI/2);sats.forEach(s=>{if(s.tab===mod(currentIdx)||s.tab===mod(currentIdx+1))s.mesh.visible=true;});}
+function navLeft(){if(busy||isNav)return;busy=true;isNav=true;navDir=-1;targetQuat.setFromAxisAngle(new THREE.Vector3(0,1,0),Math.PI/2);sats.forEach(s=>{if(s.tab===mod(currentIdx)||s.tab===mod(currentIdx-1))s.mesh.visible=true;});}
+function onNavDone(){currentIdx=mod(currentIdx+navDir);cubeGroup.quaternion.identity();targetQuat.identity();navDir=0;assignFaces();isNav=false;busy=false;refreshZoom();updateUI();}
 // ══ GAME ══
 let gameAnim=false;
-function saveState(){const fi=mod(currentIdx);allHist[fi].push({allDom:JSON.parse(JSON.stringify(allDom))});allScoreHist[fi].push(score);if(allHist[fi].length>20){allHist[fi].shift();allScoreHist[fi].shift();}}
-function undo(){const fi=mod(currentIdx);if(!allHist[fi].length||gameAnim||isNav)return;const s=allHist[fi].pop();allDom=s.allDom;score=allScoreHist[fi].pop();rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();updateScore();}
-// Rotation animée par quaternion local, compatible avec le breathing
+function saveState(){allHist.push(JSON.parse(JSON.stringify(allDom)));if(allHist.length>30)allHist.shift();}
+function undo(){if(!allHist.length||gameAnim||isNav)return;allDom=allHist.pop();locked=Array.from({length:TOTAL},()=>new Set());updateStates();for(let f=0;f<NUM_FACES;f++)rebuildFace(f);assignFaces();refreshZoom();updateUI();updateMatchInfo();}
+
+// Rotation animée
 let rotAnimActive=null;
 function rotateDom(gi){
  if(gameAnim||isNav||rotAnimActive)return;
  const fi=mod(currentIdx),dm=getDom(fi,gi);if(!dm)return;
- // Pour les portes, le satellite unique est sur tab 0; sinon on cherche sur le layer courant
- const sat=isPorte(gi)?sats.find(s=>s.tab===0&&s.gi===gi):sats.find(s=>s.tab===fi&&s.gi===gi);
+ // Bloqué si verrouillé sur cette face
+ if(isLocked(fi,gi))return;
+ const sat=sats.find(s=>s.tab===fi&&s.gi===gi);
  if(!sat||!sat.baseQuat)return;
  saveState();gameAnim=true;
  const localRot=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),-Math.PI/2);
@@ -259,7 +343,6 @@ function rotateDom(gi){
  const endQ=sat.baseQuat.clone().multiply(localRot);
  rotAnimActive={sat,startQ,endQ,elapsed:0,dur:250,gi,fi};
 }
-function rotatePorte(){rotateDom(PORTE_POSITIONS[0]);}
 function updateRotAnim(dt){
  if(!rotAnimActive)return;
  rotAnimActive.elapsed+=dt*1000;
@@ -268,17 +351,15 @@ function updateRotAnim(dt){
  if(p>=1){
   const gi=rotAnimActive.gi,fi=rotAnimActive.fi;
   const dm=getDom(fi,gi);
-  if(dm){
-   dm.rotation=(dm.rotation+90)%360;
-   // Si position-porte, propager la nouvelle rotation à tous les layers
-   if(isPorte(gi)){for(let f=0;f<NUM_FACES;f++)if(f!==fi)allDom[f][gi]={...dm};}
-  }
+  if(dm)dm.rotation=(dm.rotation+90)%360;
   rotAnimActive.sat.mesh.quaternion.copy(rotAnimActive.sat.baseQuat);
   updSatTex(rotAnimActive.sat);
-  if(isPorte(gi))updCubeTexFromPorte();
   rotAnimActive=null;
   gameAnim=false;
-  setTimeout(()=>checkFusions(),50);
+  updateStates();
+  // Rebuild toutes les faces pour refléter les nouveaux états
+  for(let f=0;f<NUM_FACES;f++)rebuildFace(f);
+  assignFaces();updateMatchInfo();
  }
 }
 function detectDiag(dx,dy){const ax=Math.abs(dx),ay=Math.abs(dy);if(ax<15||ay<15||ax/ay<0.5||ax/ay>2)return null;return dy<0?(dx>0?'ur':'ul'):(dx>0?'dr':'dl');}
@@ -289,14 +370,26 @@ function easeInOutQuad(t){return t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2;}
 
 function execGroupRot(group,cw){
  if(gameAnim||isNav)return;
- const fi=mod(currentIdx),d=allDom[fi];
+ const fi=mod(currentIdx);
  saveState();gameAnim=true;
  const map=cw?[2,0,3,1]:[1,3,0,2];
  
- // Sauvegarder les données logiques AVANT le swap
- const saved=group.map(i=>getDom(fi,i)?{...getDom(fi,i)}:null);
+ // Collecter quelles faces doivent être affectées par la propagation
+ // Pour chaque domino du groupe qui est locked, propager le même swap sur les faces liées
+ const affectedFaces=new Set([fi]);
+ for(const gi of group){
+  if(isLocked(fi,gi)){
+   locked[gi].forEach(f=>affectedFaces.add(f));
+  }
+ }
  
- // Collecter TOUS les satellites qui vont bouger
+ // Sauvegarder et appliquer le swap sur TOUTES les faces affectées
+ const allSaved={};
+ affectedFaces.forEach(f=>{
+  allSaved[f]=group.map(i=>getDom(f,i)?{...getDom(f,i)}:null);
+ });
+ 
+ // Animation seulement sur la face courante
  const movers=[];
  for(let i=0;i<4;i++){
   const srcIdx=group[i],dstIdx=group[map[i]];
@@ -306,327 +399,94 @@ function execGroupRot(group,cw){
   const tgtPos=new THREE.Vector3(tl.x,tl.y,HALF+SAT_LIFT);
   movers.push({sat,mesh:sat.mesh,srcIdx,dstIdx,startPos:sat.mesh.position.clone(),endPos:tgtPos});
  }
- 
- // Animer sur 500ms
  const dur=500;let elapsed=0;
  const animStep=(now)=>{
   if(!animStep._last)animStep._last=now;
   elapsed+=now-animStep._last;animStep._last=now;
   const p=Math.min(elapsed/dur,1),e=easeOutCubic(p);
-  movers.forEach(mv=>{
-   mv.mesh.position.lerpVectors(mv.startPos,mv.endPos,e);
-  });
+  movers.forEach(mv=>{mv.mesh.position.lerpVectors(mv.startPos,mv.endPos,e);});
   if(p<1){requestAnimationFrame(animStep);}
   else{
-   // Appliquer le swap logique
-   for(let i=0;i<4;i++){
-    const ti=group[map[i]];
-    setDom(fi,ti,saved[i]);
-   }
-   movers.forEach(mv=>{mv.mesh.scale.set(1,1,1);});
-   rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();
+   // Appliquer le swap sur toutes les faces affectées
+   affectedFaces.forEach(f=>{
+    const saved=allSaved[f];
+    for(let i=0;i<4;i++){setDom(f,group[map[i]],saved[i]);}
+   });
+   updateStates();
+   // Rebuild toutes les faces affectées
+   affectedFaces.forEach(f=>rebuildFace(f));
+   assignFaces();refreshZoom();updateUI();
    gameAnim=false;
-   setTimeout(()=>checkFusions(),50);
+   updateMatchInfo();
   }
  };
  requestAnimationFrame(animStep);
 }
-function addSc(base,states){const now=Date.now();let sm=1;states.forEach(s=>{sm=Math.max(sm,STATE_MULT[s]||1);});if(now-lastFusionTime<2000&&lastFusionTime>0)comboCount++;else comboCount=1;lastFusionTime=now;const cm=1+(comboCount-1)*0.5;const pts=Math.round(base*sm*cm);score+=pts;if(score>bestScore)bestScore=score;updateScore();return pts;}
-function showFP(pts){const el=document.createElement('div');el.className='floating-pts';el.textContent=`+${pts.toLocaleString()}`;el.style.left=(window.innerWidth/2)+'px';el.style.top=(window.innerHeight/2-30)+'px';document.body.appendChild(el);setTimeout(()=>el.remove(),1000);}
-function checkFusions(skipG){
- if(gameAnim||isNav)return;const fi=mod(currentIdx);
- // Twin check
- for(let i=0;i<TOTAL;i++){const di=getDom(fi,i);if(!di)continue;const{x,y}=getPos(i);
-  const iR=getIdx(x+1,y);if(iR!==-1&&getDom(fi,iR)&&areTwins(di,getDom(fi,iR))){doTwin(fi,i,iR,'h');return;}
-  const iB=getIdx(x,y+1);if(iB!==-1&&getDom(fi,iB)&&areTwins(di,getDom(fi,iB))){doTwin(fi,i,iB,'v');return;}
+
+function updateMatchInfo(){
+ const m=checkMatches();
+ document.getElementById('matchInfo').textContent=`${m} / ${TOTAL}`;
+ if(m===TOTAL){
+  document.getElementById('winOverlay').classList.add('show');
  }
- // Chain fusion check (3 dominos alignés)
- for(let i=0;i<TOTAL;i++){const di=getDom(fi,i);if(!di)continue;const{x,y}=getPos(i);
-  // Horizontal: L-C-R
-  const iL=getIdx(x-1,y),iR=getIdx(x+1,y);
-  if(iL!==-1&&iR!==-1){const dL=getDom(fi,iL),dR=getDom(fi,iR);
-   if(dL&&dR){const fLR=getExposed(dL,'right'),fCL=getExposed(di,'left'),fCR=getExposed(di,'right'),fRL=getExposed(dR,'left');
-    if(fLR&&fCL&&fLR===fCL&&fCR&&fRL&&fCR===fRL){doChainFusion(fi,iL,i,iR,'h');return;}
-   }
-  }
-  // Vertical: T-C-B
-  const iT=getIdx(x,y-1),iB=getIdx(x,y+1);
-  if(iT!==-1&&iB!==-1){const dT=getDom(fi,iT),dB=getDom(fi,iB);
-   if(dT&&dB){const fTB=getExposed(dT,'bottom'),fCT=getExposed(di,'top'),fCB=getExposed(di,'bottom'),fBT=getExposed(dB,'top');
-    if(fTB&&fCT&&fTB===fCT&&fCB&&fBT&&fCB===fBT){doChainFusion(fi,iT,i,iB,'v');return;}
-   }
-  }
- }
- // Simple fusion check
- for(let i=0;i<TOTAL;i++){const di=getDom(fi,i);if(!di)continue;const{x,y}=getPos(i);
-  for(const{ni,d1,d2,dir}of[{ni:getIdx(x+1,y),d1:'right',d2:'left',dir:'h'},{ni:getIdx(x,y+1),d1:'bottom',d2:'top',dir:'v'}]){
-   if(ni===-1)continue;const nb=getDom(fi,ni);if(!nb)continue;
-   const f1=getExposed(di,d1),f2=getExposed(nb,d2);if(f1&&f2&&f1===f2){doFusion(fi,i,ni,d1,d2,dir);return;}
-  }
- }
- if(!skipG)applyGrav();
 }
-function doFusion(fi,i1,i2,d1dir,d2dir,dir){
- gameAnim=true;
- const dm1=getDom(fi,i1),dm2=getDom(fi,i2);
- const nf1=getRemaining(dm1,d1dir),nf2=getRemaining(dm2,d2dir);
- const maxSI=Math.max(STATE_ORDER.indexOf(dm1.state),STATE_ORDER.indexOf(dm2.state));
- const ns=STATE_ORDER[Math.min(maxSI+1,STATE_ORDER.indexOf('cosmic'))];
- if(ns!=='white'&&fusionCounts[ns]!==undefined)fusionCounts[ns]++;
- const pts=addSc(PTS.simple,[dm1.state,dm2.state]);showFP(pts);
- const newRot=dir==='h'?90:0;
- const s1=sats.find(s=>s.tab===fi&&s.gi===i1),s2=sats.find(s=>s.tab===fi&&s.gi===i2);
- if(!s1?.mesh||!s2?.mesh){
-  // Fallback: appliquer la fusion logique sans animation
-  setDom(fi,i1,{face1:nf1||BANK[0],face2:nf2||BANK[0],rotation:newRot,state:ns});
-  setDom(fi,i2,null);
-  rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();
-  gameAnim=false;setTimeout(()=>checkFusions(),50);return;
- }
- const m1=s1.mesh,m2=s2.mesh;
- const p1s=m1.position.clone(),p2s=m2.position.clone();
- const mid=p1s.clone().add(p2s).multiplyScalar(0.5);
- let elapsed=0;const durMove=400,durFade=200,durAppear=400;
- const moveAnim=(now)=>{
-  if(!moveAnim._last)moveAnim._last=now;
-  elapsed+=now-moveAnim._last;moveAnim._last=now;
-  const p=Math.min(elapsed/durMove,1),e=easeInOutQuad(p);
-  m1.position.lerpVectors(p1s,mid,e);m2.position.lerpVectors(p2s,mid,e);
-  const sc=1-0.3*e;m1.scale.set(sc,sc,sc);m2.scale.set(sc,sc,sc);
-  if(p<1)requestAnimationFrame(moveAnim);
-  else{elapsed=0;moveAnim._last=null;requestAnimationFrame(fadeAnim);}
- };
- const fadeAnim=(now)=>{
-  if(!fadeAnim._last)fadeAnim._last=now;
-  elapsed+=now-fadeAnim._last;fadeAnim._last=now;
-  const p=Math.min(elapsed/durFade,1);
-  m1.traverse(c=>{if(c.material)c.material.opacity=1-p;});
-  m2.traverse(c=>{if(c.material)c.material.opacity=1-p;});
-  if(p<1)requestAnimationFrame(fadeAnim);
-  else{
-   const res={face1:nf1||BANK[0],face2:nf2||BANK[0],rotation:newRot,state:ns};
-   setDom(fi,i1,res);
-   setDom(fi,i2,null);
-   rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();
-   const newS=sats.find(s=>s.tab===fi&&s.gi===i1);
-   if(newS){newS.mesh.scale.set(0.3,0.3,0.3);elapsed=0;fadeAnim._last=null;
-    const appearAnim=(now2)=>{
-     if(!appearAnim._last)appearAnim._last=now2;
-     elapsed+=now2-appearAnim._last;appearAnim._last=now2;
-     const p2=Math.min(elapsed/durAppear,1),e2=easeOutCubic(p2);
-     const sc2=0.3+0.7*e2;newS.mesh.scale.set(sc2,sc2,sc2);
-     if(p2<1)requestAnimationFrame(appearAnim);
-     else{newS.mesh.scale.set(1,1,1);gameAnim=false;setTimeout(()=>checkFusions(),50);}
-    };requestAnimationFrame(appearAnim);
-   }else{gameAnim=false;setTimeout(()=>checkFusions(),50);}
-  }
- };
- requestAnimationFrame(moveAnim);
-}
-function doChainFusion(fi,i1,i2,i3,dir){
- gameAnim=true;
- const dm1=getDom(fi,i1),dm2=getDom(fi,i2),dm3=getDom(fi,i3);
- const nf1=getRemaining(dm1,dir==='h'?'left':'top');
- const nf2=getRemaining(dm3,dir==='h'?'right':'bottom');
- const maxSI=Math.max(STATE_ORDER.indexOf(dm1.state),STATE_ORDER.indexOf(dm2.state),STATE_ORDER.indexOf(dm3.state));
- const ns=STATE_ORDER[Math.min(maxSI+1,STATE_ORDER.indexOf('cosmic'))];
- if(ns!=='white'&&fusionCounts[ns]!==undefined)fusionCounts[ns]++;
- const pts=addSc(PTS.simple,[dm1.state,dm2.state,dm3.state]);showFP(pts);
- const newRot=dir==='h'?90:0;
- const s1=sats.find(s=>s.tab===fi&&s.gi===i1),s2=sats.find(s=>s.tab===fi&&s.gi===i2),s3=sats.find(s=>s.tab===fi&&s.gi===i3);
- const applyResult=()=>{
-  setDom(fi,i2,{face1:nf1||BANK[0],face2:nf2||BANK[0],rotation:newRot,state:ns});
-  setDom(fi,i1,null);setDom(fi,i3,null);
-  rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();
- };
- if(!s1?.mesh||!s2?.mesh||!s3?.mesh){applyResult();gameAnim=false;setTimeout(()=>checkFusions(),50);return;}
- const m1=s1.mesh,m2=s2.mesh,m3=s3.mesh;
- const p1s=m1.position.clone(),p2s=m2.position.clone(),p3s=m3.position.clone();
- const mid=p2s.clone();
- let elapsed=0;const durMove=400,durFade=200,durAppear=400;
- const moveAnim=(now)=>{
-  if(!moveAnim._last)moveAnim._last=now;
-  elapsed+=now-moveAnim._last;moveAnim._last=now;
-  const p=Math.min(elapsed/durMove,1),e=easeInOutQuad(p);
-  m1.position.lerpVectors(p1s,mid,e);m3.position.lerpVectors(p3s,mid,e);
-  const sc=1-0.4*e;m1.scale.set(sc,sc,sc);m2.scale.set(sc,sc,sc);m3.scale.set(sc,sc,sc);
-  if(p<1)requestAnimationFrame(moveAnim);
-  else{elapsed=0;moveAnim._last=null;requestAnimationFrame(fadeAnim);}
- };
- const fadeAnim=(now)=>{
-  if(!fadeAnim._last)fadeAnim._last=now;
-  elapsed+=now-fadeAnim._last;fadeAnim._last=now;
-  const p=Math.min(elapsed/durFade,1);
-  m1.traverse(c=>{if(c.material)c.material.opacity=1-p;});
-  m2.traverse(c=>{if(c.material)c.material.opacity=1-p;});
-  m3.traverse(c=>{if(c.material)c.material.opacity=1-p;});
-  if(p<1)requestAnimationFrame(fadeAnim);
-  else{
-   applyResult();
-   const newS=sats.find(s=>s.tab===fi&&s.gi===i2);
-   if(newS){newS.mesh.scale.set(0.3,0.3,0.3);elapsed=0;fadeAnim._last=null;
-    const appearAnim=(now2)=>{
-     if(!appearAnim._last)appearAnim._last=now2;
-     elapsed+=now2-appearAnim._last;appearAnim._last=now2;
-     const p2=Math.min(elapsed/durAppear,1),e2=easeOutCubic(p2);
-     const sc2=0.3+0.7*e2;newS.mesh.scale.set(sc2,sc2,sc2);
-     if(p2<1)requestAnimationFrame(appearAnim);
-     else{newS.mesh.scale.set(1,1,1);gameAnim=false;setTimeout(()=>checkFusions(),50);}
-    };requestAnimationFrame(appearAnim);
-   }else{gameAnim=false;setTimeout(()=>checkFusions(),50);}
-  }
- };
- requestAnimationFrame(moveAnim);
-}
-function doTwin(fi,i1,i2,dir){
- gameAnim=true;
- const dm1=getDom(fi,i1),dm2=getDom(fi,i2);
- let ns;if(dm1.state==='cosmic'&&dm2.state==='cosmic')ns='supernovae';else ns='cosmic';
- const pts=addSc(PTS.twin,[dm1.state,dm2.state]);showFP(pts);
- const newRot=dir==='h'?90:0;
- const s1=sats.find(s=>s.tab===fi&&s.gi===i1),s2=sats.find(s=>s.tab===fi&&s.gi===i2);
- if(!s1?.mesh||!s2?.mesh){setDom(fi,i1,{...dm1,rotation:newRot,state:ns});setDom(fi,i2,null);rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();gameAnim=false;setTimeout(()=>checkFusions(),50);return;}
- const m1=s1.mesh,m2=s2.mesh;
- const p1s=m1.position.clone(),p2s=m2.position.clone();
- const mid=p1s.clone().add(p2s).multiplyScalar(0.5);
- let elapsed=0;const durMove=400,durFade=200,durAppear=500;
- const moveAnim=(now)=>{
-  if(!moveAnim._last)moveAnim._last=now;
-  elapsed+=now-moveAnim._last;moveAnim._last=now;
-  const p=Math.min(elapsed/durMove,1),e=easeInOutQuad(p);
-  m1.position.lerpVectors(p1s,mid,e);m2.position.lerpVectors(p2s,mid,e);
-  const sc=1-0.5*e;m1.scale.set(sc,sc,sc);m2.scale.set(sc,sc,sc);
-  m1.rotation.z=e*Math.PI;m2.rotation.z=-e*Math.PI;
-  if(p<1)requestAnimationFrame(moveAnim);
-  else{elapsed=0;moveAnim._last=null;requestAnimationFrame(fadeAnim);}
- };
- const fadeAnim=(now)=>{
-  if(!fadeAnim._last)fadeAnim._last=now;
-  elapsed+=now-fadeAnim._last;fadeAnim._last=now;
-  const p=Math.min(elapsed/durFade,1);
-  m1.traverse(c=>{if(c.material)c.material.opacity=1-p;});
-  m2.traverse(c=>{if(c.material)c.material.opacity=1-p;});
-  if(p<1)requestAnimationFrame(fadeAnim);
-  else{
-   setDom(fi,i1,{...dm1,rotation:newRot,state:ns});setDom(fi,i2,null);
-   rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();
-   const newS=sats.find(s=>s.tab===fi&&s.gi===i1);
-   if(newS){newS.mesh.scale.set(0.2,0.2,0.2);elapsed=0;fadeAnim._last=null;
-    const appearAnim=(now2)=>{
-     if(!appearAnim._last)appearAnim._last=now2;
-     elapsed+=now2-appearAnim._last;appearAnim._last=now2;
-     const p2=Math.min(elapsed/durAppear,1),e2=easeOutCubic(p2);
-     const sc2=0.2+0.8*e2;newS.mesh.scale.set(sc2,sc2,sc2);
-     if(p2<1)requestAnimationFrame(appearAnim);
-     else{newS.mesh.scale.set(1,1,1);gameAnim=false;setTimeout(()=>checkFusions(),50);}
-    };requestAnimationFrame(appearAnim);
-   }else{gameAnim=false;setTimeout(()=>checkFusions(),50);}
-  }
- };
- requestAnimationFrame(moveAnim);
-}
-function applyGrav(){
- const fi=mod(currentIdx);
- const moves=[];
- for(let y=ROWS-2;y>=0;y--)for(let x=0;x<COLS;x++){
-  const i=getIdx(x,y),iB=getIdx(x,y+1);
-  const di=getDom(fi,i),dB=getDom(fi,iB);
-  if(di&&!dB){
-   moves.push({from:i,to:iB});
-   setDom(fi,iB,di);setDom(fi,i,null);
-  }
- }
- if(moves.length===0)return;
- gameAnim=true;
- const animMoves=[];
- moves.forEach(mv=>{
-  const sat=sats.find(s=>s.tab===fi&&s.gi===mv.from);
-  if(sat){
-   const startPos=sat.mesh.position.clone();
-   const tp=getPos(mv.to),tl=g2l(tp.x,tp.y);
-   const endPos=new THREE.Vector3(tl.x,tl.y,HALF+SAT_LIFT);
-   sat.gi=mv.to;sat.lx=tl.x;sat.ly=tl.y;
-   animMoves.push({mesh:sat.mesh,startPos,endPos});
-  }
- });
- if(animMoves.length===0){
-  rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();
-  gameAnim=false;setTimeout(()=>applyGrav(),50);return;
- }
- let elapsed=0;const dur=180;
- const gravAnim=(now)=>{
-  if(!gravAnim._last)gravAnim._last=now;
-  elapsed+=now-gravAnim._last;gravAnim._last=now;
-  const p=Math.min(elapsed/dur,1),e=easeOutCubic(p);
-  animMoves.forEach(am=>{am.mesh.position.lerpVectors(am.startPos,am.endPos,e);});
-  if(p<1)requestAnimationFrame(gravAnim);
-  else{
-   animMoves.forEach(am=>{
-    const sat=sats.find(s=>s.mesh===am.mesh);
-    if(sat)placeSat(sat,new THREE.Quaternion());
-   });
-   updCubeTexFromPorte();
-   gameAnim=false;
-   setTimeout(()=>applyGrav(),30);
-  }
- };
- requestAnimationFrame(gravAnim);
-}
+
 // ══ RAYCAST ══
 const ray=new THREE.Raycaster(),mv=new THREE.Vector2();
-function getSatAt(cx,cy){const r=canvas.getBoundingClientRect();mv.x=((cx-r.left)/r.width)*2-1;mv.y=-((cy-r.top)/r.height)*2+1;ray.setFromCamera(mv,camera);const all=[];const fi=mod(currentIdx);sats.forEach(s=>{if(s.mesh.visible&&(s.tab===fi||isPorte(s.gi)))s.mesh.traverse(c=>{if(c.isMesh)all.push(c);});});for(const h of ray.intersectObjects(all,false)){let o=h.object;while(o){if(o.userData?.isSat){const s=sats.find(x=>x.mesh===o);if(s)return s;}o=o.parent;}}return null;}
-function isCubeAt(cx,cy){const r=canvas.getBoundingClientRect();mv.x=((cx-r.left)/r.width)*2-1;mv.y=-((cy-r.top)/r.height)*2+1;ray.setFromCamera(mv,camera);return ray.intersectObject(pMesh,false).length>0;}
+function getSatAt(cx,cy){const r=canvas.getBoundingClientRect();mv.x=((cx-r.left)/r.width)*2-1;mv.y=-((cy-r.top)/r.height)*2+1;ray.setFromCamera(mv,camera);const all=[];const fi=mod(currentIdx);sats.forEach(s=>{if(s.mesh.visible&&s.tab===fi)s.mesh.traverse(c=>{if(c.isMesh)all.push(c);});});for(const h of ray.intersectObjects(all,false)){let o=h.object;while(o){if(o.userData?.isSat){const s=sats.find(x=>x.mesh===o);if(s)return s;}o=o.parent;}}return null;}
 // ══ POINTER ══
-let pS=null,pM=false,pSat=null,pCb=false;
-// ══ NAV SWIPE (sur canvas) ══
-let swS=null;
+let pS=null,pM=false,pSat=null;
+// Convertir un point écran en coordonnée grille (x,y) la plus proche
+function screenToGrid(cx,cy){
+ const r=canvas.getBoundingClientRect();
+ const ndcX=((cx-r.left)/r.width)*2-1;
+ const ndcY=-((cy-r.top)/r.height)*2+1;
+ const vec=new THREE.Vector3(ndcX,ndcY,0.5).unproject(camera);
+ const dir=vec.sub(camera.position).normalize();
+ // Intersection avec le plan Z = HALF+SAT_LIFT
+ const t=(HALF+SAT_LIFT-camera.position.z)/dir.z;
+ const wx=camera.position.x+dir.x*t;
+ const wy=camera.position.y+dir.y*t;
+ // Convertir world coords en grille
+ const gx=Math.round(wx/GAP+1);
+ const gy=Math.round(-wy/GAP+2);
+ return{x:Math.max(0,Math.min(COLS-1,gx)),y:Math.max(0,Math.min(ROWS-1,gy))};
+}
 canvas.addEventListener('pointerdown',e=>{
  if(isNav||gameAnim)return;pS={x:e.clientX,y:e.clientY};pM=false;
- pSat=getSatAt(e.clientX,e.clientY);pCb=!pSat&&isCubeAt(e.clientX,e.clientY);
+ pSat=getSatAt(e.clientX,e.clientY);
  canvas.setPointerCapture(e.pointerId);
 });
 canvas.addEventListener('pointermove',e=>{if(pS&&Math.hypot(e.clientX-pS.x,e.clientY-pS.y)>12)pM=true;});
 canvas.addEventListener('pointerup',e=>{if(!pS)return;const dx=e.clientX-pS.x,dy=e.clientY-pS.y;
- if(!pM){if(pCb)rotatePorte();else if(pSat)rotateDom(pSat.gi);}
+ if(!pM){if(pSat)rotateDom(pSat.gi);}
  else if(Math.hypot(dx,dy)>=15){
-  // Horizontal swipe = nav Y
+  // Horizontal swipe = nav
   if(Math.abs(dx)>Math.abs(dy)*1.5&&Math.abs(dx)>40){if(dx<0)navRight();else navLeft();}
-  // Vertical swipe = nav X
-  else if(Math.abs(dy)>Math.abs(dx)*1.5&&Math.abs(dy)>40){if(dy<0)navUp();else navDown();}
-  else{const dir=detectDiag(dx,dy);if(dir){let gx,gy;if(pSat){const p=getPos(pSat.gi);gx=p.x;gy=p.y;}else if(pCb){gx=1;gy=2;}if(gx!==undefined){const group=getGroup(gx,gy,dir);if(group){const fi=mod(currentIdx);if(group.some(i=>getDom(fi,i)))execGroupRot(group,isCW(dir));}}}}}
- pS=null;pSat=null;pCb=false;});
-canvas.addEventListener('pointercancel',()=>{pS=null;pSat=null;pCb=false;});
-document.addEventListener('keydown',e=>{if(e.key==='ArrowRight'){navRight();e.preventDefault();}else if(e.key==='ArrowLeft'){navLeft();e.preventDefault();}else if(e.key==='ArrowUp'){navUp();e.preventDefault();}else if(e.key==='ArrowDown'){navDown();e.preventDefault();}});
+  else{
+   const dir=detectDiag(dx,dy);
+   if(dir){
+    // Utiliser le point de départ pour trouver la cellule grille
+    const gp=screenToGrid(pS.x,pS.y);
+    const group=getGroup(gp.x,gp.y,dir);
+    if(group&&group.some(i=>getDom(mod(currentIdx),i))){
+     execGroupRot(group,isCW(dir));
+    }
+   }
+  }
+ }
+ pS=null;pSat=null;});
+canvas.addEventListener('pointercancel',()=>{pS=null;pSat=null;});
+document.addEventListener('keydown',e=>{if(e.key==='ArrowRight'){navRight();e.preventDefault();}else if(e.key==='ArrowLeft'){navLeft();e.preventDefault();}});
 
 // ══ UI ══
 const dotsEl=document.getElementById('navDots');
-for(let i=0;i<NUM_FACES;i++){const d=document.createElement('div');d.className='nav-dot'+(i===0?' active':'');d.addEventListener('click',()=>{if(!isNav&&!busy){if(i===1&&mod(currentIdx)===0)navRight();else if(i===0&&mod(currentIdx)===1)navLeft();}});dotsEl.appendChild(d);}
+for(let i=0;i<NUM_FACES;i++){const d=document.createElement('div');d.className='nav-dot'+(i===0?' active':'');d.addEventListener('click',()=>{if(!isNav&&!busy){const diff=i-mod(currentIdx);if(diff>0)navRight();else if(diff<0)navLeft();}});dotsEl.appendChild(d);}
 function updateUI(){const idx=mod(currentIdx);document.getElementById('navLabel').textContent=`T${idx+1}`;dotsEl.querySelectorAll('.nav-dot').forEach((d,i)=>d.classList.toggle('active',i===idx));}
-function updateScore(){document.getElementById('scoreVal').textContent=score.toLocaleString();const ce=document.getElementById('comboVal');ce.textContent=comboCount>1?`×${(1+(comboCount-1)*0.5).toFixed(1)}`:'×1';ce.style.opacity=comboCount>1?'1':'0.5';}
-document.getElementById('btnReset').addEventListener('click',()=>{const fi=mod(currentIdx);initFace(fi);const newPorte={face1:BANK[Math.floor(srand(SEEDS[fi]+7)()*BANK.length)],face2:BANK[Math.floor(srand(SEEDS[fi]+77)()*BANK.length)],rotation:0,state:'white'};PORTE_POSITIONS.forEach(pi=>setDom(fi,pi,newPorte));score=0;comboCount=0;lastFusionTime=0;fusionCounts={silver:0,gold:0,emerald:0,cosmic:0,supernovae:0};rebuildFace(fi);assignFaces();updCubeTexFromPorte();refreshZoom();updateUI();updateScore();});
+document.getElementById('btnReset').addEventListener('click',()=>{initAllFaces();locked=Array.from({length:TOTAL},()=>new Set());updateStates();allHist=[];for(let f=0;f<NUM_FACES;f++)rebuildFace(f);buildSats();assignFaces();refreshZoom();updateUI();updateMatchInfo();});
 document.getElementById('btnUndo').addEventListener('click',()=>undo());
-// ══ COSMIC DRAWING ══
-function drawCosmicRing(cv,angle){
- const S=cv.width,ctx=cv.getContext('2d');
- ctx.clearRect(0,0,S,S);
- const cx=S/2,cy=S/2;
- const grad=ctx.createConicGradient(angle,cx,cy);
- const cols=['#ff006e','#8338ec','#06b6d4','#34d399','#ffd700','#ff006e'];
- cols.forEach((c,i)=>grad.addColorStop(i/(cols.length-1),c));
- const lw=5,m=4,rd=36;
- ctx.strokeStyle=grad;ctx.lineWidth=lw;
- ctx.beginPath();ctx.moveTo(m+rd,m);ctx.lineTo(S-m-rd,m);ctx.quadraticCurveTo(S-m,m,S-m,m+rd);ctx.lineTo(S-m,S-m-rd);ctx.quadraticCurveTo(S-m,S-m,S-m-rd,S-m);ctx.lineTo(m+rd,S-m);ctx.quadraticCurveTo(m,S-m,m,S-m-rd);ctx.lineTo(m,m+rd);ctx.quadraticCurveTo(m,m,m+rd,m);ctx.closePath();ctx.stroke();
-}
-function drawSupernovaeRing(cv,angle){
- const S=cv.width,ctx=cv.getContext('2d');
- ctx.clearRect(0,0,S,S);
- const cx=S/2,cy=S/2;
- const grad=ctx.createConicGradient(angle,cx,cy);
- ['#ff4500','#ff8c00','#ffd700','#ffff00','#ff8c00','#ff4500'].forEach((c,i)=>grad.addColorStop(i/5,c));
- const lw=6,m=4,rd=36;
- ctx.strokeStyle=grad;ctx.lineWidth=lw;
- ctx.beginPath();ctx.moveTo(m+rd,m);ctx.lineTo(S-m-rd,m);ctx.quadraticCurveTo(S-m,m,S-m,m+rd);ctx.lineTo(S-m,S-m-rd);ctx.quadraticCurveTo(S-m,S-m,S-m-rd,S-m);ctx.lineTo(m+rd,S-m);ctx.quadraticCurveTo(m,S-m,m,S-m-rd);ctx.lineTo(m,m+rd);ctx.quadraticCurveTo(m,m,m+rd,m);ctx.closePath();ctx.stroke();
-}
+
+// ══ HALO DRAWING ══
 function drawHalo(cv,r,g,b,phase,intensity){
  const S=cv.width,cx=S/2,ctx=cv.getContext('2d');
  ctx.clearRect(0,0,S,S);
@@ -639,6 +499,18 @@ function drawHalo(cv,r,g,b,phase,intensity){
  grd.addColorStop(1,`rgba(${r},${g},${b},0)`);
  ctx.fillStyle=grd;ctx.fillRect(0,0,S,S);
 }
+function drawCosmicRing(cv,angle){
+ const S=cv.width,ctx=cv.getContext('2d');
+ ctx.clearRect(0,0,S,S);
+ const cx=S/2,cy=S/2;
+ const grad=ctx.createConicGradient(angle,cx,cy);
+ const cols=['#ff006e','#8338ec','#06b6d4','#34d399','#ffd700','#ff006e'];
+ cols.forEach((c,i)=>grad.addColorStop(i/(cols.length-1),c));
+ const lw=5,m=4,rd=36;
+ ctx.strokeStyle=grad;ctx.lineWidth=lw;
+ ctx.beginPath();ctx.moveTo(m+rd,m);ctx.lineTo(S-m-rd,m);ctx.quadraticCurveTo(S-m,m,S-m,m+rd);ctx.lineTo(S-m,S-m-rd);ctx.quadraticCurveTo(S-m,S-m,S-m-rd,S-m);ctx.lineTo(m+rd,S-m);ctx.quadraticCurveTo(m,S-m,m,S-m-rd);ctx.lineTo(m,m+rd);ctx.quadraticCurveTo(m,m,m+rd,m);ctx.closePath();ctx.stroke();
+}
+
 // ══ RENDER ══
 const clock=new THREE.Clock();let lt=0;
 function animate(){
@@ -648,52 +520,47 @@ function animate(){
  haloMat.opacity=0.4+0.35*(0.5+0.5*Math.sin(t*1.8));
  camera.position.x+=(targetCamX-camera.position.x)*0.08;camera.position.z+=(targetCamZ-camera.position.z)*0.08;camera.lookAt(camera.position.x,0,0);
  const fi=mod(currentIdx);
- sats.forEach((s,si)=>{if(!isNav){if(isPorte(s.gi))s.mesh.visible=!!getDom(0,s.gi);else s.mesh.visible=(s.tab===fi);}if(s.mesh.visible){updSatTex(s);const isRotating=rotAnimActive&&rotAnimActive.sat===s;if(s.baseQuat&&!isNav&&!isRotating){const ph=t*1.2+si*1.7;const bq=new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.sin(ph)*0.012,0,Math.cos(ph*0.7)*0.008));s.mesh.quaternion.copy(s.baseQuat).multiply(bq);}
-  const d=getDom(s.tab,s.gi);if(!d)return;const st=d.state||'white',ud=s.mesh.userData;
-  if(st==='cosmic'){
-   drawCosmicRing(ud.ringCanvas,t*Math.PI/2);ud.ringTex.needsUpdate=true;ud.ringMesh.material.opacity=1;
-   drawHalo(ud.haloCanvas,131,56,236,t*Math.PI,0.5);ud.haloTex.needsUpdate=true;ud.haloSprite.material.opacity=0.8;
-   const cp=t*1.5+si;ud.edgeLines.material.color.setRGB(0.5+Math.sin(cp)*0.3,Math.sin(cp+2.1)*0.3+0.2,0.5+Math.sin(cp+4.2)*0.3);ud.edgeLines.material.opacity=0.5+Math.sin(t*2)*0.15;
-   ud.glowMesh.material.color.set(0x8338ec);ud.glowMesh.material.opacity=0.2+0.12*Math.sin(t*2+si);
+ sats.forEach((s,si)=>{
+  if(!isNav){s.mesh.visible=(s.tab===fi);}
+  if(s.mesh.visible){
+   updSatTex(s);
+   const isRotating=rotAnimActive&&rotAnimActive.sat===s;
+   const domLocked=isLocked(s.tab,s.gi);
+   if(s.baseQuat&&!isNav&&!isRotating&&!domLocked){
+    const ph=t*1.2+si*1.7;
+    const bq=new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.sin(ph)*0.012,0,Math.cos(ph*0.7)*0.008));
+    s.mesh.quaternion.copy(s.baseQuat).multiply(bq);
+   }else if(domLocked&&s.baseQuat&&!isNav&&!isRotating){
+    s.mesh.quaternion.copy(s.baseQuat);
+   }
+   const d=getDom(s.tab,s.gi);if(!d)return;
+   const st=d.state||'white',ud=s.mesh.userData;
+   if(st==='cosmic'){
+    drawCosmicRing(ud.ringCanvas,t*Math.PI/2);ud.ringTex.needsUpdate=true;ud.ringMesh.material.opacity=1;
+    drawHalo(ud.haloCanvas,131,56,236,t*Math.PI,0.5);ud.haloTex.needsUpdate=true;ud.haloSprite.material.opacity=0.8;
+    const cp=t*1.5+si;ud.edgeLines.material.color.setRGB(0.5+Math.sin(cp)*0.3,Math.sin(cp+2.1)*0.3+0.2,0.5+Math.sin(cp+4.2)*0.3);ud.edgeLines.material.opacity=0.5+Math.sin(t*2)*0.15;
+    ud.glowMesh.material.color.set(0x8338ec);ud.glowMesh.material.opacity=0.2+0.12*Math.sin(t*2+si);
+   }
+   else if(st==='gold'){
+    ud.ringMesh.material.opacity=0;
+    drawHalo(ud.haloCanvas,255,215,0,t*Math.PI*0.6,0.25);ud.haloTex.needsUpdate=true;ud.haloSprite.material.opacity=0.5;
+    ud.edgeLines.material.color.set(0xffd700);ud.edgeLines.material.opacity=0.25+0.08*Math.sin(t*1.2+si);
+    ud.glowMesh.material.color.set(0xffd700);ud.glowMesh.material.opacity=0.08+0.05*Math.sin(t*1.2+si);
+   }
+   else if(st==='silver'){
+    ud.ringMesh.material.opacity=0;
+    drawHalo(ud.haloCanvas,6,182,212,t*Math.PI*0.5,0.2);ud.haloTex.needsUpdate=true;ud.haloSprite.material.opacity=0.4;
+    ud.edgeLines.material.color.set(0x22d3ee);ud.edgeLines.material.opacity=0.2+0.06*Math.sin(t+si);
+    ud.glowMesh.material.color.set(0x06b6d4);ud.glowMesh.material.opacity=0.05+0.03*Math.sin(t+si);
+   }
+   else{ud.glowMesh.material.opacity=0;ud.ringMesh.material.opacity=0;ud.haloSprite.material.opacity=0;ud.edgeLines.material.color.set(0xb4b4be);ud.edgeLines.material.opacity=0.12;}
   }
-  else if(st==='supernovae'){
-   drawSupernovaeRing(ud.ringCanvas,t*Math.PI*2/3);ud.ringTex.needsUpdate=true;ud.ringMesh.material.opacity=1;
-   drawHalo(ud.haloCanvas,255,140,0,t*Math.PI*1.25,0.6);ud.haloTex.needsUpdate=true;ud.haloSprite.material.opacity=0.9;
-   ud.edgeLines.material.color.setRGB(1,0.4+Math.sin(t*2+si)*0.3,Math.sin(t*1.5)*0.15);ud.edgeLines.material.opacity=0.5+Math.sin(t*2.5)*0.12;
-   ud.glowMesh.material.color.set(0xff8c00);ud.glowMesh.material.opacity=0.3+0.2*Math.sin(t*2.5+si);
-  }
-  else if(st==='emerald'){
-   ud.ringMesh.material.opacity=0;
-   drawHalo(ud.haloCanvas,52,211,153,t*Math.PI*0.8,0.35);ud.haloTex.needsUpdate=true;ud.haloSprite.material.opacity=0.7;
-   ud.edgeLines.material.color.set(0x34d399);ud.edgeLines.material.opacity=0.3+0.1*Math.sin(t*1.5+si);
-   ud.glowMesh.material.color.set(0x34d399);ud.glowMesh.material.opacity=0.15+0.1*Math.sin(t*1.5+si);
-  }
-  else if(st==='gold'){
-   ud.ringMesh.material.opacity=0;
-   drawHalo(ud.haloCanvas,255,215,0,t*Math.PI*0.6,0.25);ud.haloTex.needsUpdate=true;ud.haloSprite.material.opacity=0.5;
-   ud.edgeLines.material.color.set(0xffd700);ud.edgeLines.material.opacity=0.25+0.08*Math.sin(t*1.2+si);
-   ud.glowMesh.material.color.set(0xffd700);ud.glowMesh.material.opacity=0.08+0.05*Math.sin(t*1.2+si);
-  }
-  else if(st==='silver'){
-   ud.ringMesh.material.opacity=0;
-   drawHalo(ud.haloCanvas,6,182,212,t*Math.PI*0.5,0.2);ud.haloTex.needsUpdate=true;ud.haloSprite.material.opacity=0.4;
-   ud.edgeLines.material.color.set(0x22d3ee);ud.edgeLines.material.opacity=0.2+0.06*Math.sin(t+si);
-   ud.glowMesh.material.color.set(0x06b6d4);ud.glowMesh.material.opacity=0.05+0.03*Math.sin(t+si);
-  }
-  else{ud.glowMesh.material.opacity=0;ud.ringMesh.material.opacity=0;ud.haloSprite.material.opacity=0;ud.edgeLines.material.color.set(0xb4b4be);ud.edgeLines.material.opacity=0.12;}}});
+ });
  renderer.render(scene,camera);
 }
-for(let f=0;f<NUM_FACES;f++)initFace(f);
-// Initialisation des portes — générées avec le seed du face 0, propagées sur tous les layers
-(function(){
- PORTE_POSITIONS.forEach((pi,k)=>{
-  const f1=BANK[Math.floor(srand(SEEDS[0]+7+k*100)()*BANK.length)];
-  const f2=BANK[Math.floor(srand(SEEDS[0]+77+k*100)()*BANK.length)];
-  const porteDm={face1:f1,face2:f2,rotation:0,state:'white'};
-  for(let f=0;f<NUM_FACES;f++)allDom[f][pi]={...porteDm};
- });
-})();
-buildSats();assignFaces();updCubeTexFromPorte();refreshZoom();camera.position.set(0,0,targetCamZ);updateUI();updateScore();animate();
+initAllFaces();
+updateStates();
+buildSats();assignFaces();refreshZoom();camera.position.set(0,0,targetCamZ);updateUI();updateMatchInfo();animate();
 </script>
 </body>
 </html>
